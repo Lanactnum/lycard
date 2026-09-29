@@ -8,7 +8,7 @@
 
 [**中文**](README.md) ｜ [English](README.en.md) ｜ [日本語](README.ja.md)
 
-[下载](../../releases) · [更新日志](CHANGELOG.md) · [卡图数据包](#卡图数据包)
+[下载 APK](https://github.com/Lanactnum/lycard-updates/releases) · [更新日志](CHANGELOG.md) · [卡图数据包](../../releases/tag/cards-pack-v1)
 
 </div>
 
@@ -70,7 +70,10 @@
 
 ## 下载与安装
 
-只发 **arm64**（现在的手机基本都是）。到 [Releases](../../releases) 下：
+只发 **arm64**（现在的手机基本都是）。
+
+**安装包在更新仓库里**：[`Lanactnum/lycard-updates` → Releases](https://github.com/Lanactnum/lycard-updates/releases)
+—— App 里的「检查更新」连的也是它。本仓库的 Releases 只放**卡图数据包**。
 
 | 文件 | 说明 |
 |---|---|
@@ -81,7 +84,8 @@
 
 ## 卡图数据包
 
-安装包里的是**压缩过**的卡图。想要官方 **372×520 PNG 原图**，另外下一个数据包：
+安装包里的是**压缩过**的卡图。想要官方 **372×520 PNG 原图**，去本仓库的 Release
+[**cards-pack-v1**](../../releases/tag/cards-pack-v1) 下：
 
 | 文件 | 大小 |
 |---|---|

@@ -8,7 +8,7 @@
 
 [中文](README.md) ｜ [English](README.en.md) ｜ [**日本語**](README.ja.md)
 
-[ダウンロード](../../releases) · [更新履歴](CHANGELOG.md) · [カード画像データパック](#カード画像データパック)
+[APK ダウンロード](https://github.com/Lanactnum/lycard-updates/releases) · [更新履歴](CHANGELOG.md) · [カード画像データパック](../../releases/tag/cards-pack-v1)
 
 </div>
 
@@ -77,7 +77,9 @@
 ## ダウンロードとインストール
 
 配布は **arm64 のみ**です（現在のスマートフォンはほぼすべて arm64）。
-[Releases](../../releases) からどうぞ：
+
+**APK は更新リポジトリにあります**：[`Lanactnum/lycard-updates` → Releases](https://github.com/Lanactnum/lycard-updates/releases)
+—— アプリの「更新を確認」もここを見ています。本リポジトリの Releases は**カード画像データパック**のみです。
 
 | ファイル | 説明 |
 |---|---|
@@ -89,7 +91,7 @@
 ## カード画像データパック
 
 APK に入っているのは**圧縮された**カード画像です。公式の **372×520 PNG 原寸画像**が欲しい場合は、
-データパックを別途ダウンロードしてください：
+本リポジトリの Release [**cards-pack-v1**](../../releases/tag/cards-pack-v1) からどうぞ：
 
 | ファイル | サイズ |
 |---|---|

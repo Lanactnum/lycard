@@ -8,7 +8,7 @@ Offline-first card database · card art · Chinese translation · deck building 
 
 [中文](README.md) ｜ [**English**](README.en.md) ｜ [日本語](README.ja.md)
 
-[Download](../../releases) · [Changelog](CHANGELOG.md) · [Card art data pack](#card-art-data-pack)
+[Download APK](https://github.com/Lanactnum/lycard-updates/releases) · [Changelog](CHANGELOG.md) · [Card art data pack](../../releases/tag/cards-pack-v1)
 
 </div>
 
@@ -80,7 +80,11 @@ Put cards on the field during a game and let it do the arithmetic.
 
 ## Download & install
 
-arm64 only (that's virtually every phone now). Grab from [Releases](../../releases):
+arm64 only (that's virtually every phone now).
+
+**The APK lives in the update repo**: [`Lanactnum/lycard-updates` → Releases](https://github.com/Lanactnum/lycard-updates/releases)
+— that is also the endpoint the app's "Check for updates" hits. This repo's Releases carry
+only the **card art data pack**.
 
 | File | What it is |
 |---|---|
@@ -91,7 +95,8 @@ After installing, **launch it once** so the app can create its own data director
 
 ## Card art data pack
 
-The APK bundles **compressed** art. For the official **372×520 PNG originals**, download the data pack:
+The APK bundles **compressed** art. For the official **372×520 PNG originals**, grab the
+[**cards-pack-v1**](../../releases/tag/cards-pack-v1) release in this repo:
 
 | File | Size |
 |---|---|

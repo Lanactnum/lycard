@@ -1,0 +1,44 @@
+name: lycee_app
+description: "lycard —— Lycee Overture 卡组助手。由镧锕Lanactnum的大肥鱼制作，以 MIT 协议开源。"
+publish_to: 'none'
+version: 0.85.1+94
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.2
+  shared_preferences: ^2.3.3
+  dynamic_color: ^1.7.0
+  cached_network_image: ^3.4.1
+  http: ^1.2.2
+  flutter_staggered_grid_view: ^0.7.0
+  gal: ^2.3.0
+  path_provider: ^2.1.4
+  file_picker: ^8.1.2
+  package_info_plus: ^8.1.1
+  qr_flutter: ^4.1.0
+  camera: ^0.12.1
+  google_mlkit_text_recognition: ^0.17.1
+  google_mlkit_barcode_scanning: ^0.16.1
+  archive: ^4.3.0
+  url_launcher: ^6.3.1
+  pdf: ^3.13.1
+  printing: ^5.15.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/data/
+    - assets/cards/
+    - assets/LICENSE.txt

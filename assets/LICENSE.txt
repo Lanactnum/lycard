@@ -1,0 +1,42 @@
+MIT License
+
+Copyright (c) 2026 镧锕Lanactnum的大肥鱼
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+────────────────────────────────────────────────────────────
+
+中文说明（非协议正文，仅为阅读方便）：
+
+本许可允许任何人免费获取本软件及配套文档，并可以不受限制地使用、复制、
+修改、合并、发布、分发、再授权或销售本软件的副本；唯一的要求是：
+上述版权声明与本许可声明必须包含在本软件的所有副本或主要部分中。
+
+本软件按「现状」提供，不附带任何明示或暗示的担保，包括但不限于对
+适销性、特定用途适用性和非侵权性的担保。作者或版权持有人不对任何
+索赔、损害或其他责任负责。
+
+────────────────────────────────────────────────────────────
+
+关于卡片数据（不属于本 MIT 协议的范围）：
+
+本软件内附的 LYCEE OVERTURE 卡片数值、效果原文与卡图，版权归
+LYCEE OVERTURE 官方及其各作品的权利人所有，仅为个人收藏与
+对局查阅用途使用，不得用于商业用途。
+本软件自带的中文翻译为本项目自行翻译，随本软件一并按 MIT 协议提供。

@@ -1,0 +1,84 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Widget Preview related
+.widget_preview/
+
+# ─────────────────────── 以下为 lycard 项目自己加的 ───────────────────────
+
+# 构建产物 / 分发目录 / 工作区：体积几十 GB，一律不进仓库
+/release/
+/dist/
+/work/
+/tools/__pycache__/
+__pycache__/
+
+# 下载下来的 PNG 原图暂存（原图在 Release 的 cards-pack 里，不进 git）
+/img_tmp/
+
+# ⚠⚠⚠ 签名密钥 —— 绝对、永远不能进仓库 ⚠⚠⚠
+/android/key.properties
+/android/*.jks
+/android/*.keystore
+*.jks
+*.keystore
+
+# 本地环境与凭据
+/android/local.properties
+.env
+.env.*
+
+# Gradle 构建产物（注意：.gitignore 里的 /build/ 只锚定根目录，
+# android/build、android/.gradle 要单独写，否则会被当成源码收进来）
+/android/build/
+/android/.gradle/
+/android/app/build/
+/android/app/.cxx/
+
+# 编辑器 / 系统杂项
+.vscode/
+Thumbs.db
+desktop.ini

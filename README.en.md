@@ -16,7 +16,9 @@ Offline-first card database · card art · Chinese translation · deck building 
 
 ## What is this
 
-`lycard` is an Android (arm64) utility for players of **LYCEE OVERTURE**.
+`lycard` is an Android (arm64) utility for players of **LYCEE OVERTURE** — put together by my
+whale girl, in exchange for bowls of steamed rice.
+(She wrote this repository too. One of these days I'll go through it by hand... *flops over*)
 
 Everything lives on your device, so you can **browse, build and calculate with no network at all**.
 Card art uses a two-layer scheme: the APK bundles a compressed WebP set (good enough to read),
@@ -28,7 +30,7 @@ the installer doesn't balloon to several gigabytes.
 > and must not be used commercially. See [License](#license).
 
 
-## 截图
+## Screenshots
 
 <p align="center">
   <img src="docs/shots/01-search.png" width="270" alt="search">
@@ -95,7 +97,7 @@ Put cards on the field during a game and let it do the arithmetic.
 
 ## Download & install
 
-arm64 only (that's virtually every phone now).
+**Both builds are published** — the arm64 build (smallest) and the universal build (installs anywhere).
 
 **The APK lives in the update repo**: [`Lanactnum/lycard-updates` → Releases](https://github.com/Lanactnum/lycard-updates/releases)
 — that is also the endpoint the app's "Check for updates" hits. This repo's Releases carry

@@ -8,7 +8,7 @@ Offline-first card database · card art · Chinese translation · deck building 
 
 [中文](README.md) ｜ [**English**](README.en.md) ｜ [日本語](README.ja.md)
 
-[Download APK](https://github.com/Lanactnum/lycard-updates/releases) · [Changelog](CHANGELOG.md) · [Card art data pack](../../releases/tag/cards-pack-v1)
+[Download APK](https://github.com/Lanactnum/lycard-updates/releases) · [Features](FEATURES.en.md) · [Changelog](CHANGELOG.md) · [Card art data pack](../../releases/tag/cards-pack-v1)
 
 </div>
 
@@ -27,7 +27,22 @@ the installer doesn't balloon to several gigabytes.
 > rights holders. This project is for personal collection and looking things up during games,
 > and must not be used commercially. See [License](#license).
 
+
+## 截图
+
+<p align="center">
+  <img src="docs/shots/01-search.png" width="270" alt="search">
+</p>
+
+| Search results | Card detail | Deck overview |
+|:---:|:---:|:---:|
+| <img src="docs/shots/02-results.png" width="215"> | <img src="docs/shots/03-card-detail.png" width="215"> | <img src="docs/shots/04-deck.png" width="215"> |
+| **Deck cards** | **Calculator** | **My** |
+| <img src="docs/shots/05-deck-cards.png" width="215"> | <img src="docs/shots/06-calculator.png" width="215"> | <img src="docs/shots/07-mine.png" width="215"> |
+
 ## Features
+
+> The full list, screen by screen, lives in [**Features**](FEATURES.en.md). Below is an overview.
 
 ### Search
 
@@ -86,10 +101,14 @@ arm64 only (that's virtually every phone now).
 — that is also the endpoint the app's "Check for updates" hits. This repo's Releases carry
 only the **card art data pack**.
 
-| File | What it is |
-|---|---|
-| `lycard-<version>.apk` | The installer, about **600 MB** — compressed art is already inside, so this alone is enough |
-| `lycard-<version>.apk.sha256` | Checksum |
+| File | Size | What it is |
+|---|---|---|
+| `lycard-<version>-arm64.apk` | **573.5 MB** | **arm64 build**, the smallest — use this for essentially every phone |
+| `lycard-<version>-universal.apk` | **616.1 MB** | **Universal build** (arm64 + 32-bit ARM + x86_64) for older devices or when you don't know what the recipient has |
+| `lycard-<version>*.sha256` | | Checksums |
+
+> The in-app "Check for updates" **picks by your device's ABI**: arm64 phones get the arm64 build, others get the universal one.
+> The `arm64` / `universal` tokens in the asset names are meaningful - please don't rename them.
 
 After installing, **launch it once** so the app can create its own data directory.
 
@@ -148,11 +167,26 @@ The app picks it up automatically; you can also hit "Rescan" in settings.
 
 ```bash
 flutter pub get
+
+# (1) arm64 only - smallest, and that is virtually every phone today
 flutter build apk --release --target-platform android-arm64
+
+# (2) all ABIs in one APK (arm64 + 32-bit ARM + x86_64) - installs anywhere
+flutter build apk --release --target-platform android-arm,android-arm64,android-x64
+
+# (3) one APK per ABI
+flutter build apk --release --split-per-abi
 ```
 
-arm64 only on purpose: a universal build is more than twice the size and takes twice as long
-to install, and essentially every phone is arm64 now.
+| Build | Size (measured on 0.85.1) | Notes |
+|---|---|---|
+| `--target-platform android-arm64` | 573.5 MB | arm64 native libraries only |
+| `--target-platform android-arm,android-arm64,android-x64` | 616.1 MB | three sets of native libraries in one APK |
+
+**Why the universal build is only ~42 MB larger**: the card data and images (~518 MB) are
+**shared** across ABIs; only the native libraries are duplicated
+(arm64 36.8 MB + 32-bit ARM 29.4 MB + x86_64 39.8 MB). So if you are worried about a device
+not being able to install it, just ship the universal build - the cost is smaller than it sounds.
 
 **Signing**: no signing keys are in this repository (`android/key.properties` and `android/*.jks`
 are both in `.gitignore`). To produce your own build, generate one:

@@ -8,7 +8,7 @@
 
 [中文](README.md) ｜ [English](README.en.md) ｜ [**日本語**](README.ja.md)
 
-[APK ダウンロード](https://github.com/Lanactnum/lycard-updates/releases) · [更新履歴](CHANGELOG.md) · [カード画像データパック](../../releases/tag/cards-pack-v1)
+[APK ダウンロード](https://github.com/Lanactnum/lycard-updates/releases) · [機能一覧](FEATURES.ja.md) · [更新履歴](CHANGELOG.md) · [カード画像データパック](../../releases/tag/cards-pack-v1)
 
 </div>
 
@@ -27,7 +27,22 @@
 > LYCEE OVERTURE 公式および各作品の権利者に帰属します。本プロジェクトは個人のコレクションと
 > 対戦中の参照を目的としたもので、商用利用はできません。詳しくは[ライセンス](#ライセンス)へ。
 
+
+## 截图
+
+<p align="center">
+  <img src="docs/shots/01-search.png" width="270" alt="search">
+</p>
+
+| 検索結果 | カード詳細 | デッキ概要 |
+|:---:|:---:|:---:|
+| <img src="docs/shots/02-results.png" width="215"> | <img src="docs/shots/03-card-detail.png" width="215"> | <img src="docs/shots/04-deck.png" width="215"> |
+| **デッキのカード** | **計算機** | **マイ** |
+| <img src="docs/shots/05-deck-cards.png" width="215"> | <img src="docs/shots/06-calculator.png" width="215"> | <img src="docs/shots/07-mine.png" width="215"> |
+
 ## 機能
+
+> 画面ごとの詳細を含む完全なリストは [**機能一覧**](FEATURES.ja.md) にあります。以下は概要です。
 
 ### 検索
 
@@ -81,10 +96,14 @@
 **APK は更新リポジトリにあります**：[`Lanactnum/lycard-updates` → Releases](https://github.com/Lanactnum/lycard-updates/releases)
 —— アプリの「更新を確認」もここを見ています。本リポジトリの Releases は**カード画像データパック**のみです。
 
-| ファイル | 説明 |
-|---|---|
-| `lycard-<バージョン>.apk` | インストーラ。約 **600 MB** —— 圧縮画像を同梱済みなので、これだけで使えます |
-| `lycard-<バージョン>.apk.sha256` | チェックサム |
+| ファイル | サイズ | 説明 |
+|---|---|---|
+| `lycard-<バージョン>-arm64.apk` | **573.5 MB** | **arm64 版**。最も小さく、現在のスマートフォンはほぼすべてこれ |
+| `lycard-<バージョン>-universal.apk` | **616.1 MB** | **全アーキテクチャ版**（arm64 + 32bit ARM + x86_64）。古い端末や、相手の機種が不明なとき |
+| `lycard-<バージョン>*.sha256` | | それぞれのチェックサム |
+
+> アプリ内の「更新を確認」は**端末のアーキテクチャで自動的に選びます**：arm64 端末には arm64 版、それ以外には全アーキテクチャ版。
+> 添付ファイル名の `arm64` / `universal` は意味を持つので、改名しないでください。
 
 インストール後、**一度起動してください**（アプリが自分のデータフォルダを作ります）。
 
@@ -144,11 +163,26 @@ cat lycee_cards.pack.part* > lycee_cards.pack
 
 ```bash
 flutter pub get
+
+# ① arm64 のみ（最小。現在の端末はほぼすべてこれ）
 flutter build apk --release --target-platform android-arm64
+
+# ② 全アーキテクチャを 1 つの APK に（arm64 + 32bit ARM + x86_64）
+flutter build apk --release --target-platform android-arm,android-arm64,android-x64
+
+# ③ アーキテクチャごとに分割
+flutter build apk --release --split-per-abi
 ```
 
-arm64 のみなのは意図的です。全アーキテクチャ版はサイズが倍以上、インストール時間も倍近くに
-なりますが、現在ほぼすべての端末が arm64 です。
+| ビルド | サイズ（0.85.1 実測） | 説明 |
+|---|---|---|
+| `--target-platform android-arm64` | 573.5 MB | arm64 のネイティブライブラリのみ |
+| `--target-platform android-arm,android-arm64,android-x64` | 616.1 MB | 3 種類のネイティブライブラリを 1 つに |
+
+**全アーキテクチャ版が約 42 MB しか大きくならない理由**：カードデータと画像（約 518 MB）は
+**3 つのアーキテクチャで共通**で、重複するのはネイティブライブラリの分だけです
+（arm64 36.8 MB + 32bit ARM 29.4 MB + x86_64 39.8 MB）。
+インストールできない端末があるのが心配なら、全アーキテクチャ版を出してしまって構いません。
 
 **署名**：本リポジトリに署名鍵は**ありません**（`android/key.properties` と `android/*.jks` は
 どちらも `.gitignore` に入っています）。自分のビルドを作る場合は生成してください：

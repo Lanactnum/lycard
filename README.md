@@ -8,7 +8,7 @@
 
 [**中文**](README.md) ｜ [English](README.en.md) ｜ [日本語](README.ja.md)
 
-[下载 APK](https://github.com/Lanactnum/lycard-updates/releases) · [更新日志](CHANGELOG.md) · [卡图数据包](../../releases/tag/cards-pack-v1)
+[下载 APK](https://github.com/Lanactnum/lycard-updates/releases) · [功能列表](FEATURES.md) · [更新日志](CHANGELOG.md) · [卡图数据包](../../releases/tag/cards-pack-v1)
 
 </div>
 
@@ -25,7 +25,22 @@
 > 非官方作品。卡片数值、效果原文与卡图的权利归 LYCEE OVERTURE 官方及各作品权利人所有，
 > 本项目仅供个人收藏与对局查阅，不得用于商业用途。详见[许可](#许可)。
 
+
+## 截图
+
+<p align="center">
+  <img src="docs/shots/01-search.png" width="270" alt="search">
+</p>
+
+| 检索结果 | 卡详情 | 卡组详情 |
+|:---:|:---:|:---:|
+| <img src="docs/shots/02-results.png" width="215"> | <img src="docs/shots/03-card-detail.png" width="215"> | <img src="docs/shots/04-deck.png" width="215"> |
+| **卡组卡图** | **计算器** | **我的** |
+| <img src="docs/shots/05-deck-cards.png" width="215"> | <img src="docs/shots/06-calculator.png" width="215"> | <img src="docs/shots/07-mine.png" width="215"> |
+
 ## 功能
+
+> 完整清单（每个界面的细节）另见 [**功能列表**](FEATURES.md)。下面是概览。
 
 ### 检索
 
@@ -75,10 +90,14 @@
 **安装包在更新仓库里**：[`Lanactnum/lycard-updates` → Releases](https://github.com/Lanactnum/lycard-updates/releases)
 —— App 里的「检查更新」连的也是它。本仓库的 Releases 只放**卡图数据包**。
 
-| 文件 | 说明 |
-|---|---|
-| `lycard-<版本>.apk` | 安装包，约 **600 MB** —— 里面已经带了压缩卡图，只装它也能用 |
-| `lycard-<版本>.apk.sha256` | 校验值 |
+| 文件 | 大小 | 说明 |
+|---|---|---|
+| `lycard-<版本>-arm64.apk` | **573.5 MB** | **arm64 版**，体积最小；现在的手机基本都是 arm64，选它就对了 |
+| `lycard-<版本>-universal.apk` | **616.1 MB** | **全架构版**（arm64 + 32 位 ARM + x86_64），老机器、或者不确定对方是什么机器时用这个 |
+| `lycard-<版本>*.sha256` | | 各自的校验值 |
+
+> 应用内「检查更新」会**按手机架构自己挑**：arm64 手机拿 arm64 版，其他拿全架构版。
+> 所以附件名里的 `arm64` / `universal` 是有意义的，别改名。
 
 装完请**先启动一次**，让 App 把自己的数据目录建出来。
 
@@ -136,10 +155,25 @@ cat lycee_cards.pack.part* > lycee_cards.pack
 
 ```bash
 flutter pub get
+
+# ① 只出 arm64（体积最小，现在的手机绝大多数都是）
 flutter build apk --release --target-platform android-arm64
+
+# ② 全架构打进一个包（arm64 + 32 位 ARM + x86_64，谁都能装）
+flutter build apk --release --target-platform android-arm,android-arm64,android-x64
+
+# ③ 每种架构拆成独立的包
+flutter build apk --release --split-per-abi
 ```
 
-只出 arm64：全架构包会大一倍多、装的时间也翻倍，而现在的手机基本都是 arm64。
+| 构建方式 | 体积（0.85.1 实测） | 说明 |
+|---|---|---|
+| `--target-platform android-arm64` | 573.5 MB | 只含 arm64 原生库 |
+| `--target-platform android-arm,android-arm64,android-x64` | 616.1 MB | 三份原生库打成一个包 |
+
+**为什么全架构只大了约 42 MB**：卡的图和数据（约 518 MB）三个架构是**共用**的，
+多出来的只有原生库那部分（arm64 36.8 MB + 32 位 ARM 29.4 MB + x86_64 39.8 MB）。
+所以「怕对方装不上」就直接出全架构版，代价没想象中大。
 
 **签名**：仓库里**没有**签名密钥（`android/key.properties`、`android/*.jks` 都在 `.gitignore` 里）。
 想出自己的包，自己生成一份：

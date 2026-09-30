@@ -39,6 +39,7 @@ class EffectBonus {
     this.conditional = false,
     this.activated = false,
     this.variableNote = '',
+    this.start = 0,
   });
 
   /// 效果来自哪张卡
@@ -66,6 +67,12 @@ class EffectBonus {
 
   /// 变量的原文说明
   final String variableNote;
+
+  /// 这一条在**归一化后**的效果文本里的起始下标。
+  ///
+  /// 体检/调试要用：`text.indexOf(b.raw)` 在同一段数值于卡面里出现两次时会
+  /// 指到前一处，量出来的上下文是错的（实测差点把「修好了」当成「没修干净」）。
+  final int start;
 
   bool get isZero => values.isZero;
 
@@ -112,9 +119,20 @@ class EffectParser {
   /// 数值串里的单个项：AP+2 / DP-1 / SP+3 / DMG+2
   static final RegExp _oneValue = RegExp(r'(AP|DP|SP|DMG)\s*([+-])\s*(\d+)');
 
+  /// [变量] 的内容 —— 允许里面再套一层括号
+  /// （`[コストが2点以下の味方[宙]キャラの数]`）
+  static const String _varBody = r'((?:[^\[\]\n]|\[[^\[\]\n]*\]){1,60})';
+
   /// 带变量的数值：`APに+[コストが2点以下の味方[宙]キャラの数]する`
   static final RegExp _varValue = RegExp(
-    r'(AP|DP|SP|DMG)(?:と(?:AP|DP|SP|DMG))*に\+?\[([^\]]+)\]',
+    '(AP|DP|SP|DMG)(?:と(?:AP|DP|SP|DMG))*に\\+?\\[$_varBody\\]',
+  );
+
+  /// 带变量但**没写「に」**的写法：`DMG+[破棄したカードのＥＸ]する`。
+  /// 以前这种两条正则都不命中 —— 面板里整条都不显示，玩家根本不知道
+  /// 这张卡有变量效果（实测 68 处 / 54 张卡）。
+  static final RegExp _varValueNoNi = RegExp(
+    '(AP|DP|SP|DMG)[+-]\\[$_varBody\\]',
   );
 
   /// 条件句
@@ -136,6 +154,10 @@ class EffectParser {
     }
 
     // specificity 越大越具体
+    // 自身：`このキャラに`，以及带属性/类型筛选的写法
+    // `この[雪]キャラに` / `この＜魔剣＞キャラに` —— 筛的是自己身上的属性，
+    // 目标仍然是自身。以前这两种落进「目标待定」，得玩家手点（实测 7 处）。
+    probe(r'この[<\[][^>\]\n]{1,8}[>\]]キャラに', EffectTarget.self, 9);
     probe(r'このキャラに', EffectTarget.self, 9);
     // 对战角色（战斗中的对手，具体哪一体由玩家点）
     probe(r'対戦キャラに', EffectTarget.enemyOne, 6);
@@ -156,19 +178,34 @@ class EffectParser {
     return found.last.$3;
   }
 
-  /// 找时机：数值串前面最近的 `[タグ]`
+  /// 行动标签：决定一条效果是「放上场就算数」还是「要用才生效」。
+  ///
+  /// ⚠ 判定必须**先认这几个标签**，不能直接拿「最近的括号」：
+  /// `[常時] 味方[花]キャラ全てにＳＰ＋１する。` 里数值串前最近的括号是
+  /// 属性筛选 `[花]`，拿它当标签就会把这条常驻效果误判成「要用才生效」，
+  /// 本该自动算的变成要玩家手点（实测全池 48 条）。
+  static final RegExp _actionTag = RegExp(
+    r'\[(常時|誘発|宣言|手札宣言|起動|自動|永続)[^\]]{0,6}\]',
+  );
+
+  /// 数值串前面最近的**行动标签**（没有就是 null）
+  static String? _nearestActionTag(String pre) {
+    final Iterable<RegExpMatch> ms = _actionTag.allMatches(pre);
+    return ms.isEmpty ? null : ms.last.group(1);
+  }
+
+  /// 找时机：优先看最近的行动标签，没有标签才退回「最近的括号」
   static CalcPhase _phaseOf(String text, int valueStart) {
     final String pre = text.substring(0, valueStart);
+    final String? action = _nearestActionTag(pre);
+    if (action != null) {
+      return action.startsWith('常時') ? CalcPhase.always : CalcPhase.thisTurn;
+    }
     final Iterable<RegExpMatch> tags =
         RegExp(r'\[([^\]]{1,12})\]').allMatches(pre);
     if (tags.isEmpty) return CalcPhase.thisTurn;
     final String tag = tags.last.group(1) ?? '';
-    if (tag.startsWith('常時')) return CalcPhase.always;
-    if (tag.startsWith('誘発')) return CalcPhase.thisTurn;
-    if (tag.startsWith('宣言') || tag.startsWith('手札宣言')) {
-      return CalcPhase.thisTurn;
-    }
-    return CalcPhase.thisTurn;
+    return tag.startsWith('常時') ? CalcPhase.always : CalcPhase.thisTurn;
   }
 
   /// 数值串前面最近的 `[标签]`（没有就是 null）。
@@ -223,12 +260,16 @@ class EffectParser {
       final String pre = text.substring(0, first.start);
       final EffectTarget target = _targetOf(pre);
       final CalcPhase phase = _phaseOf(text, first.start);
-      // 「要用才生效」判定：往前看最近的一个 [标签]。
-      // 没有标签（纯事件/道具效果）或 [常時] → 放上场就算数；
-      // [宣言]/[誘発]/[手札宣言] 以及代价括号（[0] / [花花] / [C1]）
-      // 都得玩家点过才算用了，不自动套。
+      // 「要用才生效」判定：先看**行动标签**（[常時]/[誘発]/[宣言]…），找到就
+      // 按它判 —— 写了 [常時] 就是常驻，跟它后面那个括号里装的是属性筛选
+      // 还是代价无关。
+      // 只有找不到行动标签时才退回「最近的括号」：那种情况下括号多半是代价
+      // （[0] / [花花] / [C1]），归到「要用才生效」更安全。
       final String? tag = _nearestTag(pre);
-      final bool activated = tag != null && !tag.startsWith('常時');
+      final String? action = _nearestActionTag(pre);
+      final bool activated = action != null
+          ? !action.startsWith('常時')
+          : (tag != null && !tag.startsWith('常時'));
       // 条件判定：看本句（上一个 。或 ]] 之后）里有没有条件词
       final int clauseStart = _clauseStart(text, first.start);
       final String clause = text.substring(clauseStart, first.start);
@@ -249,11 +290,19 @@ class EffectParser {
         phase: phase,
         conditional: conditional || sameClauseVariable,
         activated: activated,
+        start: first.start,
       ));
     }
 
-    // ② 带变量的数值：APに+[变量] 这种算不出来，但要让玩家知道有这回事
-    for (final RegExpMatch m in _varValue.allMatches(text)) {
+    // ② 带变量的数值：算不出来，但要让玩家知道有这回事。
+    // 两种写法都要收：`APに+[变量]` 和 `DMG+[变量]`（没写「に」）。
+    final List<RegExpMatch> varMatches = <RegExpMatch>[
+      ..._varValue.allMatches(text),
+      ..._varValueNoNi.allMatches(text),
+    ]..sort((RegExpMatch a, RegExpMatch b) => a.start.compareTo(b.start));
+    final Set<int> seenVar = <int>{};
+    for (final RegExpMatch m in varMatches) {
+      if (!seenVar.add(m.start)) continue; // 同一条被两个模式都命中，只算一次
       final int clauseStart = _clauseStart(text, m.start);
       final String clause = text.substring(clauseStart, m.start);
       out.add(EffectBonus(
@@ -265,6 +314,7 @@ class EffectParser {
         hasVariable: true,
         variableNote: m.group(2) ?? '',
         conditional: _cond.hasMatch(clause),
+        start: m.start,
       ));
     }
 
@@ -292,9 +342,14 @@ class EffectParser {
   static int? chargeMaxOf(LyceeCard? card) {
     final String raw = card?.effectJp ?? '';
     if (raw.isEmpty) return null;
-    final RegExpMatch? m =
-        RegExp(r'チャージ[:：]\s*(\d+)').firstMatch(normalize(raw));
-    return m == null ? null : int.parse(m.group(1)!);
+    final String text = normalize(raw);
+    final RegExpMatch? m = RegExp(r'チャージ[:：]\s*(\d+)').firstMatch(text);
+    if (m != null) return int.parse(m.group(1)!);
+    // 「このキャラに1枚チャージできる」这种写法也要认出来（实测多认 193 张）。
+    // ⚠ 只认「N枚チャージできる」：卡面里「1枚を…チャージとして置く」是
+    // 效果动作（往这张卡下面塞一张），不是上限，别当成上限。
+    final RegExpMatch? v = RegExp(r'(\d+)\s*枚チャージできる').firstMatch(text);
+    return v == null ? null : int.parse(v.group(1)!);
   }
 
   /// 卡面里写到的「〜置き場」名字（去重，最多 8 个）。
@@ -322,6 +377,7 @@ class EffectParser {
     String sourceName, {
     CalcModSource source = CalcModSource.auto,
     String key = '',
+    CalcSlot? sourceSlot,
   }) {
     slot.mods.add(CalcMod(
       phase: b.phase,
@@ -334,6 +390,7 @@ class EffectParser {
       effectRaw: b.raw,
       sourceCode: b.sourceCode,
       key: key,
+      sourceSlot: sourceSlot,
     ));
   }
 
@@ -433,6 +490,7 @@ void _autoOneSide(
               effectRaw: b.raw,
               sourceCode: code,
               key: key,
+              sourceSlot: src,
             ));
       }
     }

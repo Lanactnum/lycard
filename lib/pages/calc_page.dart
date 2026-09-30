@@ -42,6 +42,12 @@ class _CalcPageState extends State<CalcPage> {
   final CalcSide _mine = CalcSide();
   final CalcSide _theirs = CalcSide();
 
+  /// 刚删掉的那一条修正（面板顶上「撤销删除」用，顺手删错了不必重填一遍）
+  CalcMod? _removedMod;
+  CalcSlot? _removedFrom;
+  CalcMod? _removedOverride;
+  int _removedAt = -1;
+
   LyceeCard? _cardOf(CalcSlot slot) {
     final String? code = slot.code;
     return code == null ? null : CardRepository.instance.byCode(code);
@@ -100,6 +106,7 @@ class _CalcPageState extends State<CalcPage> {
 
   /// 格子的详细面板：看基础值 / 看当前值 / 管修正 / 充能 / 拿掉卡
   Future<void> _openSlotSheet(CalcSlot slot, {required bool mine}) async {
+    _removedMod = null;
     await showGlassSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -138,7 +145,7 @@ class _CalcPageState extends State<CalcPage> {
                         Expanded(
                           child: Text(
                             chargeMax == null
-                                ? tr('这张卡没有充能')
+                                ? tr('卡面没写上限，随便记')
                                 : tr('上限 {0} 张', ['$chargeMax']),
                             style: Theme.of(c).textTheme.bodySmall,
                           ),
@@ -155,9 +162,17 @@ class _CalcPageState extends State<CalcPage> {
                         Text('${slot.charge}',
                             style: Theme.of(c).textTheme.titleMedium),
                         IconButton(
-                          tooltip: tr('加一张'),
+                          tooltip: chargeMax != null && slot.charge >= chargeMax
+                              ? tr('到上限了（{0} 张）', ['$chargeMax'])
+                              : tr('加一张'),
                           visualDensity: VisualDensity.compact,
-                          onPressed: () => setSheet(() => slot.charge++),
+                          // 卡面写了上限就挡住：比上限还多的充能是不存在的状态，
+                          // 记错了局内数值就跟着错。认不出上限的卡则不挡 ——
+                          // 那种卡还有一百来张，不能因此让玩家没法记。
+                          onPressed:
+                              chargeMax != null && slot.charge >= chargeMax
+                                  ? null
+                                  : () => setSheet(() => slot.charge++),
                           icon: const Icon(Icons.add_circle_outline, size: 20),
                         ),
                       ],
@@ -245,8 +260,7 @@ class _CalcPageState extends State<CalcPage> {
                   if (card != null)
                     _EffectPanel(
                       card: card,
-                      appliedOf: (EffectBonus b) =>
-                          _appliedAnywhere(card.code, b.raw),
+                      appliedOf: (EffectBonus b) => _appliedFrom(slot, b),
                       onApply: (EffectBonus b) => _applyBonus(
                         b,
                         slot: slot,
@@ -254,9 +268,28 @@ class _CalcPageState extends State<CalcPage> {
                         setSheet: setSheet,
                       ),
                       onUndo: (EffectBonus b) =>
-                          setSheet(() => _undoBonus(card.code, b.raw)),
+                          setSheet(() => _undoFrom(slot, b)),
                       onApplyAll: () =>
                           _applyAllRest(card, slot, mine, setSheet),
+                    ),
+                  // 删错了的撤销入口：放在面板里，别用 SnackBar（会被面板盖住）
+                  if (_removedMod != null && identical(_removedFrom, slot))
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              tr('已删掉一条修正'),
+                              style: Theme.of(c).textTheme.bodySmall,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => _undoDelete(slot, setSheet),
+                            child: Text(tr('撤销删除')),
+                          ),
+                        ],
+                      ),
                     ),
                   Expanded(
                     child: !slot.hasMods
@@ -337,16 +370,30 @@ class _CalcPageState extends State<CalcPage> {
     if (targets.isEmpty) {
       final bool toEnemy = b.target == EffectTarget.enemyOne ||
           b.target == EffectTarget.enemyAll;
+      final CalcSide ally = mine ? _mine : _theirs;
+      final CalcSide foe = mine ? _theirs : _mine;
+      // 写明了是哪一方就只列那一边；**目标待定**（「キャラ１体に」这种）两边
+      // 都列 —— 目标本来就可能在对面的场上，只给我方会逼玩家白点一次。
+      final List<(String, CalcSide)> sections = toEnemy
+          ? <(String, CalcSide)>[(tr('对方'), foe)]
+          : b.target == EffectTarget.unknown
+              ? <(String, CalcSide)>[(tr('我方'), ally), (tr('对方'), foe)]
+              : <(String, CalcSide)>[(tr('我方'), ally)];
       final CalcSlot? picked = await _pickSlotOnField(
-        side: toEnemy ? (mine ? _theirs : _mine) : (mine ? _mine : _theirs),
-        title: toEnemy ? tr('选对方场上的一张') : tr('选我方场上的一张'),
+        sections: sections,
+        title: toEnemy
+            ? tr('选对方场上的一张')
+            : b.target == EffectTarget.unknown
+                ? tr('选一张场上卡')
+                : tr('选我方场上的一张'),
       );
       if (picked == null) return;
       targets = <CalcSlot>[picked];
     }
     setSheet(() {
       for (final CalcSlot t in targets) {
-        EffectParser.applyBonus(t, b, name, source: CalcModSource.effect);
+        EffectParser.applyBonus(t, b, name,
+            source: CalcModSource.effect, sourceSlot: slot);
       }
     });
   }
@@ -369,21 +416,29 @@ class _CalcPageState extends State<CalcPage> {
     );
   }
 
-  /// 让玩家在场上点选一格（用于「我方 1 体」「对方 1 体」这类目标）
+  /// 让玩家在场上点选一格（用于「我方 1 体」「对方 1 体」「目标待定」）
+  ///
+  /// [sections] 是「标题 + 那一方」的列表：目标写明了哪一方就只给那一边，
+  /// 目标待定就把两边都列出来。
   Future<CalcSlot?> _pickSlotOnField({
-    required CalcSide side,
+    required List<(String, CalcSide)> sections,
     required String title,
   }) async {
-    final List<CalcSlot> candidates =
-        side.all.where((CalcSlot s) => !s.isEmpty).toList();
-    if (candidates.isEmpty) {
+    final List<(String, CalcSlot)> items = <(String, CalcSlot)>[];
+    for (final (String label, CalcSide side) in sections) {
+      for (final CalcSlot s in side.all) {
+        if (!s.isEmpty) items.add((label, s));
+      }
+    }
+    if (items.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr('那一方场上还没有卡'))),
+          SnackBar(content: Text(tr('场上还没有卡'))),
         );
       }
       return null;
     }
+    final bool showSide = sections.length > 1;
     return showGlassSheet<CalcSlot>(
       context: context,
       showDragHandle: true,
@@ -401,9 +456,9 @@ class _CalcPageState extends State<CalcPage> {
                   crossAxisSpacing: 8,
                   childAspectRatio: 2 / 3,
                 ),
-                itemCount: candidates.length,
+                itemCount: items.length,
                 itemBuilder: (c, i) {
-                  final CalcSlot s = candidates[i];
+                  final (String sideName, CalcSlot s) = items[i];
                   final LyceeCard? card = _cardOf(s);
                   final CalcValues v = currentOf(s, card);
                   return InkWell(
@@ -416,6 +471,22 @@ class _CalcPageState extends State<CalcPage> {
                               ? const SizedBox.expand()
                               : CardArt(card: card),
                         ),
+                        // 两边都列的时候，得看得出哪张是哪一边的
+                        if (showSide)
+                          Positioned(
+                            top: 2,
+                            left: 2,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 1),
+                              color: Theme.of(c)
+                                  .colorScheme
+                                  .surface
+                                  .withValues(alpha: 0.85),
+                              child: Text(sideName,
+                                  style: const TextStyle(fontSize: 9)),
+                            ),
+                          ),
                         Positioned(
                           left: 0,
                           right: 0,
@@ -457,6 +528,7 @@ class _CalcPageState extends State<CalcPage> {
     CalcSlot? slot,
   }) async {
     String label = mod.label;
+    CalcPhase phase = mod.phase;
     final Map<String, int> values = <String, int>{
       'AP': mod.ap,
       'DP': mod.dp,
@@ -480,12 +552,27 @@ class _CalcPageState extends State<CalcPage> {
                   ),
                 ),
               TextField(
-                // 同说明框：不用 controller，避免生命周期问题
+                // 同说明框：不用 controller，避免生命周期问题。
+                // 现有文字用 hintText 回显 —— 拿不到 controller 也不能让玩家
+                // 看不见原来写的是什么（改完才发现改错了最难受）。
                 decoration: InputDecoration(
                   isDense: true,
                   labelText: tr('说明'),
+                  hintText: mod.label.isEmpty ? null : mod.label,
                 ),
                 onChanged: (v) => label = v,
+              ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child:
+                    Text(tr('时机'), style: Theme.of(c).textTheme.labelMedium),
+              ),
+              const SizedBox(height: 4),
+              // 时机也能改：改错了不该逼玩家删了重建
+              _PhasePicker(
+                value: phase,
+                onChanged: (CalcPhase p) => phase = p,
               ),
               const SizedBox(height: 8),
               Row(
@@ -523,6 +610,7 @@ class _CalcPageState extends State<CalcPage> {
             onPressed: () {
               setSheet(() {
                 mod.label = label.trim();
+                mod.phase = phase;
                 mod.ap = values['AP'] ?? 0;
                 mod.dp = values['DP'] ?? 0;
                 mod.sp = values['SP'] ?? 0;
@@ -571,39 +659,90 @@ class _CalcPageState extends State<CalcPage> {
         _ModRow(
           mod: m,
           onEdit: () => _editMod(m, setSheet, slot: slot),
-          onDelete: () => setSheet(() {
-            if (m.source == CalcModSource.auto && m.key.isNotEmpty) {
-              slot.autoSuppressed.add(m.key);
-              slot.autoOverrides.remove(m.key);
-            }
-            slot.mods.remove(m);
-            slot.autoMods.remove(m);
-          }),
+          onDelete: () => _deleteMod(m, slot, setSheet),
         ),
     ];
   }
 
-  /// 这条效果是不是已经算在场上了（自动算上的 + 手动套用的都算）。
-  bool _appliedAnywhere(String sourceCode, String raw) {
+  /// 删一条修正 —— 删错了能撤销。
+  ///
+  /// 局内手滑删掉一条手动修正很烦；自动条目删掉会被记进 suppressed，
+  /// 反悔了得手动加回来，所以这里也一起兜住。
+  ///
+  /// ⚠ 撤销入口**必须放在这个面板里**，不能用 SnackBar：面板本身就铺在
+  /// 屏幕下半部，SnackBar 会被它整个盖住 —— 提示看得见、按钮点不到。
+  void _deleteMod(
+    CalcMod m,
+    CalcSlot slot,
+    void Function(void Function()) setSheet,
+  ) {
+    final bool isAuto = m.source == CalcModSource.auto && m.key.isNotEmpty;
+    setSheet(() {
+      _removedMod = m;
+      _removedFrom = slot;
+      _removedOverride = isAuto ? slot.autoOverrides[m.key] : null;
+      _removedAt = isAuto ? slot.autoMods.indexOf(m) : slot.mods.indexOf(m);
+      if (isAuto) {
+        slot.autoSuppressed.add(m.key);
+        slot.autoOverrides.remove(m.key);
+      }
+      slot.mods.remove(m);
+      slot.autoMods.remove(m);
+    });
+  }
+
+  /// 把刚删掉的那条放回去（面板顶上的「撤销删除」）
+  void _undoDelete(CalcSlot slot, void Function(void Function()) setSheet) {
+    final CalcMod? m = _removedMod;
+    if (m == null) return;
+    setSheet(() {
+      final bool isAuto = m.source == CalcModSource.auto && m.key.isNotEmpty;
+      if (isAuto) {
+        slot.autoSuppressed.remove(m.key);
+        final CalcMod? o = _removedOverride;
+        if (o != null) slot.autoOverrides[m.key] = o;
+      }
+      final List<CalcMod> list = isAuto ? slot.autoMods : slot.mods;
+      if (_removedAt >= 0 && _removedAt <= list.length) {
+        list.insert(_removedAt, m);
+      } else {
+        list.add(m);
+      }
+      _removedMod = null;
+      _removedOverride = null;
+      _removedAt = -1;
+    });
+  }
+
+  /// 这条效果**是不是从这一格**算上去的（自动算上的 + 手动套用的都算）。
+  ///
+  /// ⚠ 必须连来源格子一起比：场上同时放着两张同编号的卡时，只比
+  /// 「卡号 + 原文」会让两张卡的面板都显示「已算上」，撤一张还会把另一张
+  /// 的加成一起撤掉。
+  bool _appliedFrom(CalcSlot source, EffectBonus b) {
     for (final CalcSlot s in <CalcSlot>[..._mine.all, ..._theirs.all]) {
       for (final CalcMod m in <CalcMod>[...s.mods, ...s.autoMods]) {
-        if (m.sourceCode == sourceCode && m.effectRaw == raw) return true;
+        if (m.sourceCode == b.sourceCode &&
+            m.effectRaw == b.raw &&
+            identical(m.sourceSlot, source)) {
+          return true;
+        }
       }
     }
     return false;
   }
 
-  /// 撤销一条效果：把场上由它产生的那几条修正都拿掉。
+  /// 撤销**这一格**的一条效果：把场上由它产生的那几条修正都拿掉。
   ///
   /// 自动算上的那部分要记进 suppressed，否则下一次重算又补回来了。
-  void _undoBonus(String sourceCode, String raw) {
+  void _undoFrom(CalcSlot source, EffectBonus b) {
+    bool match(CalcMod m) =>
+        m.sourceCode == b.sourceCode &&
+        m.effectRaw == b.raw &&
+        identical(m.sourceSlot, source);
     for (final CalcSlot s in <CalcSlot>[..._mine.all, ..._theirs.all]) {
-      s.mods.removeWhere(
-          (CalcMod m) => m.sourceCode == sourceCode && m.effectRaw == raw);
-      final List<CalcMod> gone = s.autoMods
-          .where((CalcMod m) =>
-              m.sourceCode == sourceCode && m.effectRaw == raw)
-          .toList();
+      s.mods.removeWhere(match);
+      final List<CalcMod> gone = s.autoMods.where(match).toList();
       for (final CalcMod m in gone) {
         if (m.key.isNotEmpty) s.autoSuppressed.add(m.key);
         s.autoOverrides.remove(m.key);
@@ -635,12 +774,13 @@ class _CalcPageState extends State<CalcPage> {
     setSheet(() {
       for (final EffectBonus b in EffectParser.parse(card)) {
         if (b.hasVariable || !_resolvable(b.target)) continue;
-        if (_appliedAnywhere(card.code, b.raw)) continue;
+        if (_appliedFrom(slot, b)) continue;
         final List<CalcSlot> targets =
             _targetsOf(b.target, slot: slot, mine: mine);
         if (targets.isEmpty) continue;
         for (final CalcSlot t in targets) {
-          EffectParser.applyBonus(t, b, name, source: CalcModSource.effect);
+          EffectParser.applyBonus(t, b, name,
+              source: CalcModSource.effect, sourceSlot: slot);
         }
       }
     });
@@ -962,6 +1102,40 @@ class _EffectBonusRow extends StatelessWidget {
   }
 }
 
+/// 时机选择（自己管状态：放在对话框里也要点一下立刻变样）
+class _PhasePicker extends StatefulWidget {
+  const _PhasePicker({required this.value, required this.onChanged});
+
+  final CalcPhase value;
+  final ValueChanged<CalcPhase> onChanged;
+
+  @override
+  State<_PhasePicker> createState() => _PhasePickerState();
+}
+
+class _PhasePickerState extends State<_PhasePicker> {
+  late CalcPhase _sel = widget.value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        for (final CalcPhase p in CalcPhase.values)
+          LyTag(
+            label: kCalcPhaseNames[p]!,
+            selected: _sel == p,
+            onTap: () {
+              setState(() => _sel = p);
+              widget.onChanged(p);
+            },
+          ),
+      ],
+    );
+  }
+}
+
 /// 修正条目一行：说明 + 数值 + 来源 + 改/删
 class _ModRow extends StatelessWidget {
   const _ModRow({
@@ -1071,7 +1245,14 @@ class _Summary extends StatelessWidget {
                   ?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(width: 10),
-            Expanded(child: _StatRow(base: calcZero, cur: total)),
+            Expanded(
+              child: _StatRow(
+                base: calcZero,
+                cur: total,
+                // 合计只给 AP/DP：SP、DMG 是每张卡自己的值
+                show: const <String>['AP', 'DP'],
+              ),
+            ),
           ],
         ),
         Padding(
@@ -1107,11 +1288,20 @@ class _Summary extends StatelessWidget {
 
 /// 四个数值的并排显示：大的当前值 + 小的增减量
 class _StatRow extends StatelessWidget {
-  const _StatRow({required this.base, required this.cur, this.large = false});
+  const _StatRow({
+    required this.base,
+    required this.cur,
+    this.large = false,
+    this.show = const <String>['AP', 'DP', 'SP', 'DMG'],
+  });
 
   final CalcValues base;
   final CalcValues cur;
   final bool large;
+
+  /// 只显示这几个数值。顶部「场上合计」只给 AP/DP —— SP 和 DMG 是
+  /// **每张卡各自**的值（DMG 尤其如此，它是攻击力），几方的加到一起没意义。
+  final List<String> show;
 
   @override
   Widget build(BuildContext context) {
@@ -1122,7 +1312,8 @@ class _StatRow extends StatelessWidget {
           ('DP', base.dp, cur.dp),
           ('SP', base.sp, cur.sp),
           ('DMG', base.dmg, cur.dmg),
-        ]) ...[
+        ])
+          if (show.contains(label)) ...[
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

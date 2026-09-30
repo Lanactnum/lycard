@@ -280,4 +280,110 @@ void main() {
       expect(badValue, isEmpty, reason: '不许解析出离谱数值');
     });
   });
+
+  group('解析口径（都对着真实卡面写）', () {
+    test('[常時] 写在属性括号前面 → 仍然是常駐，能自动算', () {
+      // 「[常時] 味方[花]キャラ全てに…」里数值串前最近的括号是属性筛选，
+      // 不是行动标签 —— 拿它当标签会把常駐效果误判成「要用才生效」。
+      final c = card('P1', '[常時] 味方[花]キャラ全てにＳＰ＋１する。');
+      final EffectBonus b = EffectParser.parse(c).first;
+      expect(b.phase, CalcPhase.always);
+      expect(b.activated, isFalse, reason: '[常時] 就是常駐，不该算「要用才生效」');
+      expect(b.isAutoApplicable, isTrue);
+      expect(b.target, EffectTarget.allyAll);
+    });
+
+    test('[常時] + 条件句 → 仍不自动（宁可不猜）', () {
+      final c = card('P2', '[常時] このキャラのチャージが１枚以上の場合、このキャラにＡＰ＋２する。');
+      final EffectBonus b = EffectParser.parse(c).first;
+      expect(b.activated, isFalse);
+      expect(b.conditional, isTrue);
+      expect(b.isAutoApplicable, isFalse, reason: '有条件就得玩家确认');
+    });
+
+    test('[宣言] + 代价括号 → 还是要用才生效（保守没被改松）', () {
+      final c = card('P3', '[宣言] [花]:このキャラにＡＰ＋１する。');
+      final EffectBonus b = EffectParser.parse(c).first;
+      expect(b.activated, isTrue);
+      expect(b.isAutoApplicable, isFalse);
+    });
+
+    test('この[属性]キャラに → 自身', () {
+      final EffectBonus b =
+          EffectParser.parse(card('P4', '[常時] この[雪]キャラにＡＰ－１する。')).first;
+      expect(b.target, EffectTarget.self);
+      expect(b.values, const CalcValues(-1, 0, 0, 0));
+    });
+
+    test('この＜タイプ＞キャラに → 自身', () {
+      final EffectBonus b =
+          EffectParser.parse(card('P5', '[常時] この＜魔剣＞キャラにＡＰ＋１する。')).first;
+      expect(b.target, EffectTarget.self);
+    });
+
+    test('ＡＰ＋[变量]（没写「に」）也要解析出来', () {
+      final c = card('P6', '[誘発] このキャラにＤＭＧ＋[破棄したカードのＥＸ]する。');
+      final List<EffectBonus> bs = EffectParser.parse(c);
+      final EffectBonus v = bs.firstWhere((EffectBonus x) => x.hasVariable);
+      expect(v.variableNote, contains('破棄したカードのEX'));
+      expect(v.values, CalcValues.zero, reason: '变量算不出来，数值必须是 0');
+      expect(v.isAutoApplicable, isFalse);
+    });
+
+    test('变量里套着括号（味方[宙]キャラの数）也要读全', () {
+      final c = card('P7', '[宣言] [0]:このキャラにＡＰ＋[味方[宙]キャラの数]する。');
+      final EffectBonus v = EffectParser
+          .parse(c)
+          .firstWhere((EffectBonus x) => x.hasVariable);
+      expect(v.variableNote, '味方[宙]キャラの数');
+    });
+
+    test('充能上限：「N枚チャージできる」也认', () {
+      expect(EffectParser.chargeMaxOf(card('C4', 'このキャラに1枚チャージできる。')), 1);
+      expect(EffectParser.chargeMaxOf(card('C5', 'このキャラに２枚チャージできる。')), 2);
+    });
+
+    test('充能上限：往卡下塞一张的「チャージとして置く」不算上限', () {
+      expect(
+        EffectParser.chargeMaxOf(
+            card('C6', '自分のゴミ箱のカード1枚をこのキャラにチャージとして置く。')),
+        isNull,
+      );
+    });
+
+    test('充能上限：括号和「N枚」同时写着时，以括号为准', () {
+      expect(
+        EffectParser.chargeMaxOf(
+            card('C7', '[チャージ:２] このキャラに5枚チャージできる。')),
+        2,
+      );
+    });
+
+    test('自动算值：吃了属性筛选的全场效果会落到别人身上', () {
+      final CalcSide mine = CalcSide();
+      final CalcSide theirs = CalcSide();
+      mine.af[0].code = 'P8';
+      mine.af[1].code = 'P9';
+      final Map<String, LyceeCard> cards = <String, LyceeCard>{
+        'P8': card('P8', '[常時] 味方[花]キャラ全てにＳＰ＋１する。'),
+        'P9': card('P9', ''),
+      };
+      recomputeAuto(mine, theirs, (String k) => cards[k]);
+      expect(mine.af[0].autoMods.first.sp, 1);
+      expect(mine.af[1].autoMods.first.sp, 1, reason: '后上的卡也要吃到');
+    });
+
+    test('自动条目记着自己是从哪一格来的（同编号两张也分得清）', () {
+      final CalcSide mine = CalcSide();
+      final CalcSide theirs = CalcSide();
+      mine.af[0].code = 'P10';
+      mine.af[1].code = 'P10'; // 同编号第二张
+      final Map<String, LyceeCard> cards = <String, LyceeCard>{
+        'P10': card('P10', '[常時] このキャラにＤＰ＋１する。'),
+      };
+      recomputeAuto(mine, theirs, (String k) => cards[k]);
+      expect(identical(mine.af[0].autoMods.first.sourceSlot, mine.af[0]), isTrue);
+      expect(identical(mine.af[1].autoMods.first.sourceSlot, mine.af[1]), isTrue);
+    });
+  });
 }

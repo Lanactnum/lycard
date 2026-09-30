@@ -80,9 +80,11 @@ class CalcMod {
     this.effectRaw = '',
     this.sourceCode = '',
     this.key = '',
+    this.sourceSlot,
   });
 
-  final CalcPhase phase;
+  /// 时机。**可改** —— 玩家改错了时机不该逼他删了重建。
+  CalcPhase phase;
 
   /// 说明文字（玩家可改）
   String label;
@@ -105,6 +107,13 @@ class CalcMod {
   /// 自动条目每次场地变化都要**重算**，重算时用 key 把玩家的改动/删除找回来：
   /// 改过的进 [CalcSlot.autoOverrides]，删掉的进 [CalcSlot.autoSuppressed]。
   final String key;
+
+  /// 这条修正**由场上哪一格**产生（玩家手填的修正没有来源格子，是 null）。
+  ///
+  /// [sourceCode] + [effectRaw] 只够定位「哪张卡的效果」，不够定位「哪一张」：
+  /// 场上同时放着两张同编号的卡时，给左边那张套效果会让右边那张的面板也显示
+  /// 「已算上」，撤销还会把两处一起撤掉。带上来源格子才分得清。
+  final CalcSlot? sourceSlot;
 
   CalcValues get values => CalcValues(ap, dp, sp, dmg);
 

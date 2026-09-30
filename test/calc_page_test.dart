@@ -5,6 +5,7 @@ import 'package:lycee_app/pages/calc_page.dart';
 import 'package:lycee_app/state/app_state.dart';
 import 'package:lycee_app/state/calc_effect.dart';
 import 'package:lycee_app/state/calc_field.dart';
+import 'package:lycee_app/widgets/tags.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -335,6 +336,161 @@ void main() {
       expect(slot.mods.first.source, CalcModSource.auto);
       expect(slot.mods.first.effectRaw, 'AP+3・DP+3');
       expect(currentOf(slot, null), const CalcValues(3, 3, 0, 0));
+    });
+  });
+
+  /// 计算器体检时发现并修掉的那几条（都是会算错数/会误导的）
+  group('体检修掉的那几条', () {
+    Future<AppState> boot(WidgetTester tester) async {
+      late AppState state;
+      await tester.runAsync(() async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        await CardRepository.instance.load();
+        state = await AppState.create();
+      });
+      return state;
+    }
+
+    testWidgets('同编号两张卡：各算各的，不会互相显示「已算上」', (tester) async {
+      await pumpCalc(tester, await boot(tester));
+      // LO-0009：「[宣言] [自分の手札を全て破棄する]:このキャラにＡＰ＋３・ＤＰ＋３」
+      // —— 要用才生效，得玩家自己点
+      await placeCard(tester, 'LO-0009');
+      await placeCard(tester, 'LO-0009');
+      expect(tester.takeException(), isNull, reason: '同编号两张卡不该把界面搞崩');
+
+      final Finder two =
+          find.byKey(const ValueKey<String>('calc_slot_LO-0009'));
+      expect(two, findsNWidgets(2));
+
+      // 给第一张套上效果
+      await tester.tap(two.first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, '套用').first);
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(8, 8));
+      await tester.pumpAndSettle();
+
+      // 第二张的面板里那条效果应当还是「套用」
+      await tester.tap(two.at(1));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextButton, '套用'), findsOneWidget,
+          reason: '第一张套的效果不该把第二张也标成已算上');
+      expect(find.widgetWithText(TextButton, '撤销'), findsNothing);
+    });
+
+    testWidgets('充能到卡面上限就加不动了', (tester) async {
+      await pumpCalc(tester, await boot(tester));
+      await placeCard(tester, 'LO-5119'); // 卡面写着 [チャージ:１]
+      await tester.tap(find.byKey(const ValueKey<String>('calc_slot_LO-5119')));
+      await tester.pumpAndSettle();
+      expect(find.text('上限 1 张'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.add_circle_outline).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.add_circle_outline).first);
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(8, 8));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('充能1'), findsOneWidget);
+      expect(find.textContaining('充能2'), findsNothing,
+          reason: '上限 1 张，第二下不该加上去');
+    });
+
+    testWidgets('场上合计只显示 AP/DP', (tester) async {
+      await pumpCalc(tester, await boot(tester));
+      // SP / DMG 是每张卡各自的值，合计到一起没有意义
+      expect(find.text('AP'), findsNWidgets(2));
+      expect(find.text('DP'), findsNWidgets(2));
+      expect(find.text('SP'), findsNothing);
+      expect(find.text('DMG'), findsNothing);
+    });
+
+    testWidgets('目标待定：选卡面板把双方都列出来', (tester) async {
+      await pumpCalc(tester, await boot(tester));
+      // 页面先渲染「对方场地」，所以 Icons.add 的前 6 个是对方那侧的格子。
+      // 先在我方（第 7 个）放一张，再让 LO-0116 落到对方第一格。
+      await tester.tap(find.byIcon(Icons.add).at(6));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'LO-0001');
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find
+            .descendant(
+                of: find.byType(GridView), matching: find.byType(InkWell))
+            .first,
+      );
+      await tester.pumpAndSettle();
+      await placeCard(tester, 'LO-0116'); // 「キャラ全てにＡＰ＋１・ＤＰ＋１」→ 目标待定
+
+      await tester.tap(find.byKey(const ValueKey<String>('calc_slot_LO-0116')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, '套用').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('选一张场上卡'), findsOneWidget);
+      expect(find.text('我方'), findsOneWidget, reason: '目标待定也要能选我方');
+      expect(find.text('对方'), findsOneWidget, reason: '目标在对面时不逼玩家退出去');
+    });
+
+    testWidgets('删掉一条修正能撤销', (tester) async {
+      await pumpCalc(tester, await boot(tester));
+      await placeCard(tester, 'LO-0001');
+      await tester.tap(find.byKey(const ValueKey<String>('calc_slot_LO-0001')));
+      await tester.pumpAndSettle();
+
+      // TextField 顺序：0 说明、1 AP
+      await tester.enterText(find.byType(TextField).at(1), '2');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '加'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('删掉这条'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('删掉这条'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('删掉这条'), findsNothing);
+      expect(find.text('已删掉一条修正'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(TextButton, '撤销删除'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('删掉这条'), findsOneWidget,
+          reason: '撤销要把那条修正放回来');
+    });
+
+    testWidgets('修正的时机能改', (tester) async {
+      await pumpCalc(tester, await boot(tester));
+      await placeCard(tester, 'LO-0001');
+      await tester.tap(find.byKey(const ValueKey<String>('calc_slot_LO-0001')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(1), '2');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '加'));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(8, 8));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('此回合 AP+2'), findsOneWidget);
+
+      // 重开面板 → 改这条 → 把时机从「此回合」改成「上回合」
+      await tester.tap(find.byKey(const ValueKey<String>('calc_slot_LO-0001')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('改这条'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(LyTag, '上回合'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(8, 8));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('上回合 AP+2'), findsOneWidget);
+      expect(find.textContaining('此回合 AP+2'), findsNothing,
+          reason: '改完就不该还挂在旧时机上');
     });
   });
 }

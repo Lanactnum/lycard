@@ -4,143 +4,153 @@ import 'package:lycee_app/data/card_repository.dart';
 import 'package:lycee_app/models/lycee_card.dart';
 import 'package:lycee_app/state/calc_effect.dart';
 
-/// 计算器解析体检 —— 跑真实卡池（9952 张），打印统计 + 原文抽查。
+/// 计算器解析体检 —— 跑真实卡池，打印统计 + 原文抽查 + **逐条验修**。
 ///
-/// **这是体检脚本，不是断言测试**：它只把数报出来，不改任何东西，
-/// 用来回答「计算器的自动算值到底漏在哪」。修完解析器重跑一遍就能看涨跌。
+/// **这是体检脚本，不是断言测试**：只报数，不改东西。改完解析器重跑一遍，
+/// 就能看出每个口子修没修干净、代价是什么。
 ///
-/// 量的四件事：
-///  ① `[常時] 味方[花]キャラ全てに…` —— 属性括号把 [常時] 顶掉，
-///     本该自动算的退化成「要用才生效」；
-///  ② `この[属性]キャラに…` —— 自身效果被漏判成「目标待定」；
-///  ③ `ＡＰ＋[变量]`（不带「に」）—— 整条看不到（面板里什么都不显示）；
-///  ④ 充能上限：只有 `[チャージ:N]` 能认，`N枚チャージできる` 认不出。
+/// 定位一律用 [EffectBonus.start]（解析时的真实下标）——
+/// 别用 `text.indexOf(b.raw)`：同一段数值在卡面里出现两次时会指到前一处，
+/// 量出来的上下文是错的（实测差点把「修好了」当成「没修干净」）。
 ///
-/// ⚠ 写体检正则时注意：属性过滤器在原文里是**带括号的**（`この[雪]キャラ`、
-/// `この＜魔剣＞キャラ`），`この[日月花雪星宙]キャラ` 这种漏掉 `\[` `\]`
-/// 字面量的写法会一条都匹配不到 —— 实测踩过，量出 0 条差点当成「没问题」。
+/// 验的四件事：
+///  ① `[常時] 味方[花]キャラ全てに…` —— 属性括号顶掉行动标签，误判成「要用才生效」；
+///  ② `この[雪]キャラに…` / `この＜魔剣＞キャラに…` —— 自身效果被判成「目标待定」；
+///  ③ `ＡＰ＋[变量]`（不带「に」）—— 整条看不到；
+///  ④ 充能上限：`[チャージ:N]` 与 `N枚チャージできる` 两种写法。
+///
+/// ⚠ 写体检正则的坑：属性筛选在原文里是**带括号的**（`この[雪]キャラ`），
+/// 写成 `この[日月花雪星宙]キャラ`（漏了 `\[` `\]` 字面量）一条都匹配不到 ——
+/// 实测量出 0 条，差点当成「这里没问题」。体检脚本自己错了最难发现。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('计算器体检 v4', () async {
+  test('计算器解析体检（真实卡池）', () async {
     await CardRepository.instance.load();
     final List<LyceeCard> cards = CardRepository.instance.all.toList();
     debugPrint('==== 卡池 ${cards.length} 张 ====');
 
-    // 自身：この[属性]キャラに / この＜タイプ＞キャラに
-    final RegExp selfBracket = RegExp(r'この[\[<][^\]>]{1,8}[\]>]キャラに');
+    final RegExp anyTag = RegExp(r'\[([^\]]{1,12})\]');
     final RegExp actionRe =
         RegExp(r'\[(常時|誘発|宣言|手札宣言|起動|自動|永続)[^\]]{0,6}\]');
-    final RegExp varPlus = RegExp(r'(AP|DP|SP|DMG)\+\[([^\]]+)\]');
-    final RegExp chargeVerb = RegExp(r'(\d+)\s*枚チャージ');
+    final RegExp selfBracket = RegExp(r'この[\[<][^\]>\n]{1,8}[\]>]キャラに');
+    final RegExp varAny =
+        RegExp(r'(AP|DP|SP|DMG)[+-]\[(?:[^\[\]\n]|\[[^\[\]\n]*\]){1,60}\]');
+    final RegExp chargeVerb = RegExp(r'(\d+)\s*枚チャージできる');
     final RegExp chargeBracket = RegExp(r'チャージ[:：]\s*(\d+)');
 
-    int total = 0, autoNow = 0;
-    int alwaysTagged = 0, alwaysButActivated = 0;
-    int selfBracketOccur = 0, selfBracketCards = 0, selfBracketMissed = 0;
-    int varMiss = 0, varMissCards = 0;
+    int total = 0, activated = 0, autoApplicable = 0;
+    int fixedGain = 0, ctxAlwaysBlocked = 0;
+    int staleAlways = 0, staleSelf = 0, varMissed = 0;
     int oneAlly = 0, oneEnemy = 0, unknown = 0;
-    int chargeCards = 0, parsedNow = 0, parsedIfFixed = 0;
-    final List<String> selfMissSamples = <String>[];
-    final List<String> alwaysSamples = <String>[];
-    final List<String> varSamples = <String>[];
-    final Set<String> varCards = <String>{};
+    int chargeCards = 0, chargeParsed = 0, chargeVerbOnly = 0;
+    int cardsWithBonus = 0;
+    final List<String> staleAlwaysSamples = <String>[];
+    final List<String> staleSelfSamples = <String>[];
+    final List<String> varMissSamples = <String>[];
+    final List<String> blockedSamples = <String>[];
 
     for (final LyceeCard c in cards) {
       final String raw = c.effectJp ?? '';
       final String text = EffectParser.normalize(raw);
       final List<EffectBonus> bs = EffectParser.parse(c);
-
-      // 卡级：自身括号出现次数
-      final int occ = selfBracket.allMatches(text).length;
-      if (occ > 0) {
-        selfBracketCards++;
-        selfBracketOccur += occ;
-      }
+      if (bs.isNotEmpty) cardsWithBonus++;
 
       for (final EffectBonus b in bs) {
         total++;
+        if (b.activated) activated++;
+        if (b.isAutoApplicable) autoApplicable++;
         if (b.target == EffectTarget.allyOne) oneAlly++;
         if (b.target == EffectTarget.enemyOne) oneEnemy++;
         if (b.target == EffectTarget.unknown) unknown++;
-        final bool resolvable = b.target != EffectTarget.allyOne &&
-            b.target != EffectTarget.enemyOne &&
-            b.target != EffectTarget.unknown;
-        if (b.isAutoApplicable && resolvable) autoNow++;
 
-        final int idx = text.indexOf(b.raw);
-        if (idx <= 0) continue;
-        final String pre = text.substring(0, idx);
-        if (selfBracket.hasMatch(pre)) {
-          selfBracketMissed++;
-          if (selfMissSamples.length < 5) {
-            selfMissSamples.add('${c.code}  ${raw.replaceAll('\n', ' ')}\n'
-                '      ← 判成：${b.summary}');
+        final String pre = text.substring(0, b.start.clamp(0, text.length));
+
+        // ① 修复前 vs 修复后：修复前的判定 = 「最近的括号不是常時 就算要用才生效」
+        final Iterable<RegExpMatch> tags = anyTag.allMatches(pre);
+        final String? nearTag = tags.isEmpty ? null : tags.last.group(1);
+        final bool oldActivated = nearTag != null && !nearTag.startsWith('常時');
+        final bool autoOld = !b.hasVariable && !b.conditional && !oldActivated;
+        if (!autoOld && b.isAutoApplicable) fixedGain++;
+
+        final Iterable<RegExpMatch> am = actionRe.allMatches(pre);
+        final bool ctxAlways = am.isNotEmpty && am.last.group(1) == '常時';
+        if (ctxAlways && !b.isAutoApplicable) {
+          ctxAlwaysBlocked++;
+          if (blockedSamples.length < 4) {
+            blockedSamples.add('${c.code} ← ${b.summary}'
+                '  [变量=${b.hasVariable} 条件=${b.conditional}'
+                ' 要用才生效=${b.activated}]');
           }
         }
-        final Iterable<RegExpMatch> am =
-            actionRe.allMatches(text.substring(0, idx));
-        if (am.isNotEmpty && am.last.group(1) == '常時') {
-          alwaysTagged++;
-          if (b.activated) {
-            alwaysButActivated++;
-            if (alwaysSamples.length < 4) {
-              alwaysSamples.add('${c.code}  ${raw.replaceAll('\n', ' ')}\n'
-                  '      ← 判成：${b.summary}');
-            }
+        if (ctxAlways && b.activated) {
+          staleAlways++;
+          if (staleAlwaysSamples.length < 3) {
+            staleAlwaysSamples.add('${c.code}  ${raw.replaceAll('\n', ' ')}\n'
+                '      ← ${b.summary}');
+          }
+        }
+        if (selfBracket.hasMatch(pre) && b.target != EffectTarget.self) {
+          staleSelf++;
+          if (staleSelfSamples.length < 5) {
+            staleSelfSamples.add('${c.code}  ${raw.replaceAll('\n', ' ')}\n'
+                '      ← ${kEffectTargetNames[b.target]}');
           }
         }
       }
 
-      final int vHit = varPlus.allMatches(text).length;
-      if (vHit > 0) {
-        varMiss += vHit;
-        varCards.add(c.code);
-        if (varSamples.length < 4) {
-          varSamples.add('${c.code}  ${raw.replaceAll('\n', ' ')}');
+      if (varAny.hasMatch(text) && !bs.any((EffectBonus b) => b.hasVariable)) {
+        varMissed++;
+        if (varMissSamples.length < 5) {
+          varMissSamples.add('${c.code}  ${raw.replaceAll('\n', ' ')}');
         }
       }
 
       if (text.contains('チャージ')) {
         chargeCards++;
-        final bool now = EffectParser.chargeMaxOf(c) != null;
-        final bool verb = chargeVerb.hasMatch(text);
-        final bool bracket = chargeBracket.hasMatch(text);
-        if (now) parsedNow++;
-        if (now || verb || bracket) parsedIfFixed++;
+        if (EffectParser.chargeMaxOf(c) != null) {
+          chargeParsed++;
+        } else if (chargeVerb.hasMatch(text) && !chargeBracket.hasMatch(text)) {
+          chargeVerbOnly++;
+        }
       }
     }
-    varMissCards = varCards.length;
 
     debugPrint('---- 总量 ----');
-    debugPrint('条目 $total，现在真正会自动算的：$autoNow');
+    debugPrint('有加成的卡：$cardsWithBonus / ${cards.length}');
+    debugPrint('加成条目：$total');
+    debugPrint('  可直接自动套用：$autoApplicable');
+    debugPrint('  「要用才生效」：$activated');
+    debugPrint('  我方 1 体：$oneAlly   对方 1 体：$oneEnemy   目标待定：$unknown');
 
-    debugPrint('---- ① [常時] 被属性括号顶掉（明确误伤）----');
-    debugPrint('本句最近行动标签=[常時]：$alwaysTagged 条，判成 activated：$alwaysButActivated');
-    for (final String s in alwaysSamples) {
+    debugPrint('---- ① [常時] 被属性括号顶掉 ----');
+    debugPrint('这一改**多**套用上的条目：$fixedGain');
+    debugPrint('仍判成「要用才生效」的（应为 0）：$staleAlways');
+    for (final String s in staleAlwaysSamples) {
+      debugPrint('  · $s');
+    }
+    debugPrint('上下文是 [常時] 但按设计仍不自动的（条件/变量）：$ctxAlwaysBlocked');
+    for (final String s in blockedSamples) {
       debugPrint('  · $s');
     }
 
-    debugPrint('---- ② 「この[属性]キャラに」= 自身，漏判 ----');
-    debugPrint('原文里出现：$selfBracketOccur 处 / $selfBracketCards 张卡');
-    debugPrint('  其中解析成「非自身」的：$selfBracketMissed 条   ← 本该是「自身」');
-    for (final String s in selfMissSamples) {
+    debugPrint('---- ② この[属性]キャラに = 自身（应为 0）----');
+    debugPrint('目标还不是「自身」的：$staleSelf');
+    for (final String s in staleSelfSamples) {
       debugPrint('  · $s');
     }
 
-    debugPrint('---- ③ ＡＰ＋[变量]（不带「に」）完全看不到 ----');
-    debugPrint('$varMiss 处 / $varMissCards 张卡');
-    for (final String s in varSamples) {
+    debugPrint('---- ③ ＡＰ＋[变量] 整条看不到（应为 0）----');
+    debugPrint('有变量写法却一条变量条目都没解析出的卡：$varMissed');
+    for (final String s in varMissSamples) {
       debugPrint('  · $s');
     }
 
-    debugPrint('---- ④ 需要玩家手点 ----');
-    debugPrint('我方 1 体：$oneAlly   对方 1 体（含对戦キャラ）：$oneEnemy   目标待定：$unknown');
-
-    debugPrint('---- ⑤ 充能上限 ----');
-    debugPrint('提到 チャージ：$chargeCards 张');
-    debugPrint('  现在能解析出上限：$parsedNow');
-    debugPrint('  补上「N枚チャージ」写法后能解析出：$parsedIfFixed');
+    debugPrint('---- ④ 充能上限 ----');
+    final String pct =
+        chargeCards == 0 ? '-' : (chargeParsed * 100 / chargeCards).toStringAsFixed(0);
+    debugPrint('提到 チャージ：$chargeCards 张；解析出上限：$chargeParsed 张（$pct%）');
+    debugPrint('  仍认不出的「N枚チャージ」写法：$chargeVerbOnly 张');
 
     expect(cards.length, greaterThan(9000));
     expect(total, greaterThan(9000));

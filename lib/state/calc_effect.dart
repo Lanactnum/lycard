@@ -13,6 +13,9 @@ enum EffectTarget {
   allyDfAll,
   enemyOne,
   enemyAll,
+  /// 双方全体：「キャラ全てに」「バトル参加キャラ全てに」——
+  /// 不写「味方」「相手」的时候，指的就是场上所有人（两边都算）。
+  bothAll,
   unknown,
 }
 
@@ -24,6 +27,7 @@ const Map<EffectTarget, String> kEffectTargetNames = <EffectTarget, String>{
   EffectTarget.allyDfAll: '我方 DF 全体',
   EffectTarget.enemyOne: '对方 1 体',
   EffectTarget.enemyAll: '对方全体',
+  EffectTarget.bothAll: '双方全体',
   EffectTarget.unknown: '目标待定',
 };
 
@@ -169,6 +173,9 @@ class EffectParser {
     probe(r'\{?味方[^。{}]{0,10}?キャラ全て\}?に', EffectTarget.allyAll, 4);
     probe(r'\{?相手[^。{}]{0,10}?キャラ\d*体\}?に', EffectTarget.enemyOne, 5);
     probe(r'\{?相手[^。{}]{0,10}?キャラ全て\}?に', EffectTarget.enemyAll, 4);
+    // 双方全体：不写「味方」「相手」的「キャラ全てに」。**故意放最低优先级** ——
+    // 写了哪一方的照样被上面几条按位置/具体度抢走，这里只兜住「谁都没写」的。
+    probe(r'\{?(?:バトル参加)?[^。{}]{0,12}?キャラ全て\}?に', EffectTarget.bothAll, 3);
 
     if (found.isEmpty) return EffectTarget.unknown;
     found.sort((a, b) {
@@ -177,6 +184,21 @@ class EffectParser {
     });
     return found.last.$3;
   }
+
+  /// 「全体类」的目标 —— 这几类碰上「〜を除く」时算不准，要退成「目标待定」
+  static bool _isAreaTarget(EffectTarget t) =>
+      t == EffectTarget.allyAll ||
+      t == EffectTarget.allyAfAll ||
+      t == EffectTarget.allyDfAll ||
+      t == EffectTarget.enemyAll ||
+      t == EffectTarget.bothAll;
+
+  /// 本句里写了「〜を除く」时，全体类的目标退成「目标待定」。
+  ///
+  /// 「味方キャラを除くキャラ全てに」这种，除的是自己那一边还是对面、
+  /// 读法不止一种 —— 宁可让玩家多点一下，也不能替他算错一边。
+  static EffectTarget _excludeGuard(EffectTarget t, String clause) =>
+      (_isAreaTarget(t) && clause.contains('除く')) ? EffectTarget.unknown : t;
 
   /// 行动标签：决定一条效果是「放上场就算数」还是「要用才生效」。
   ///
@@ -258,7 +280,12 @@ class EffectParser {
       i = j;
 
       final String pre = text.substring(0, first.start);
-      final EffectTarget target = _targetOf(pre);
+      // 条件判定：看本句（上一个 。或 ]] 之后）里有没有条件词
+      final int clauseStart = _clauseStart(text, first.start);
+      final String clause = text.substring(clauseStart, first.start);
+      // 本句写了「〜を除く」时，全体类的目标算不准（除自己 / 除对面读法不止
+      // 一种）→ 退成「目标待定」让玩家点
+      final EffectTarget target = _excludeGuard(_targetOf(pre), clause);
       final CalcPhase phase = _phaseOf(text, first.start);
       // 「要用才生效」判定：先看**行动标签**（[常時]/[誘発]/[宣言]…），找到就
       // 按它判 —— 写了 [常時] 就是常驻，跟它后面那个括号里装的是属性筛选
@@ -270,9 +297,6 @@ class EffectParser {
       final bool activated = action != null
           ? !action.startsWith('常時')
           : (tag != null && !tag.startsWith('常時'));
-      // 条件判定：看本句（上一个 。或 ]] 之后）里有没有条件词
-      final int clauseStart = _clauseStart(text, first.start);
-      final String clause = text.substring(clauseStart, first.start);
       final bool conditional = _cond.hasMatch(clause);
       // ⚠ 安全规则：同一句里有 `[变量]`（例如「+[破棄した枚数]」）时，
       // 这组数值多半和变量挂钩，算不准 —— 一律不自动套用，让玩家填。
@@ -309,7 +333,7 @@ class EffectParser {
         sourceCode: card.code,
         raw: text.substring(m.start, m.end),
         values: CalcValues.zero,
-        target: _targetOf(text.substring(0, m.start)),
+        target: _excludeGuard(_targetOf(text.substring(0, m.start)), clause),
         phase: _phaseOf(text, m.start),
         hasVariable: true,
         variableNote: m.group(2) ?? '',
@@ -420,6 +444,13 @@ class EffectParser {
         return occupied(allyDf);
       case EffectTarget.enemyAll:
         return <CalcSlot>[...occupied(enemyAf), ...occupied(enemyDf)];
+      case EffectTarget.bothAll:
+        return <CalcSlot>[
+          ...occupied(allyAf),
+          ...occupied(allyDf),
+          ...occupied(enemyAf),
+          ...occupied(enemyDf),
+        ];
       case EffectTarget.allyOne:
       case EffectTarget.enemyOne:
       case EffectTarget.unknown:

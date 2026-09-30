@@ -757,7 +757,8 @@ class _CalcPageState extends State<CalcPage> {
       t == EffectTarget.allyAll ||
       t == EffectTarget.allyAfAll ||
       t == EffectTarget.allyDfAll ||
-      t == EffectTarget.enemyAll;
+      t == EffectTarget.enemyAll ||
+      t == EffectTarget.bothAll;
 
   /// 一键把这张卡剩下能算的效果全部算上（含带条件、要发动的）。
   ///

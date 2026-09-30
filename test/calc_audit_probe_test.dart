@@ -44,8 +44,9 @@ void main() {
     int staleAlways = 0, staleSelf = 0, varMissed = 0;
     int oneAlly = 0, oneEnemy = 0, unknown = 0;
     int chargeCards = 0, chargeParsed = 0, chargeVerbOnly = 0;
-    int bothAllUnknown = 0;
+    int bothAllUnknown = 0, bothAllCount = 0;
     final List<String> bothAllSamples = <String>[];
+    final Map<String, int> bothAllHeads = <String, int>{};
     int cardsWithBonus = 0;
     final List<String> staleAlwaysSamples = <String>[];
     final List<String> staleSelfSamples = <String>[];
@@ -62,6 +63,7 @@ void main() {
         total++;
         if (b.activated) activated++;
         if (b.isAutoApplicable) autoApplicable++;
+        if (b.target == EffectTarget.bothAll) bothAllCount++;
         if (b.target == EffectTarget.allyOne) oneAlly++;
         if (b.target == EffectTarget.enemyOne) oneEnemy++;
         if (b.target == EffectTarget.unknown) unknown++;
@@ -98,6 +100,9 @@ void main() {
           final String head = pre.substring(kAll - 8 < 0 ? 0 : kAll - 8, kAll);
           if (!head.contains('味方') && !head.contains('相手')) {
             bothAllUnknown++;
+            final String h =
+                pre.substring(kAll - 6 < 0 ? 0 : kAll - 6, kAll);
+            bothAllHeads[h] = (bothAllHeads[h] ?? 0) + 1;
             if (bothAllSamples.length < 5) {
               bothAllSamples.add('${c.code}  ${raw.replaceAll('\n', ' ')}');
             }
@@ -159,8 +164,16 @@ void main() {
       debugPrint('  · $s');
     }
 
-    debugPrint('---- ⑤ 「キャラ全てに」= 双方全体，却要玩家只选一格 ----');
-    debugPrint('这种漏算：$bothAllUnknown 条');
+    debugPrint('---- ⑤ 「キャラ全てに」= 双方全体 ----');
+    debugPrint('解析成「双方全体」的：$bothAllCount 条');
+    debugPrint('还留在「目标待定」的：$bothAllUnknown 条'
+        '（应当只剩带「除く」的，那些是有意保守）');
+    final List<MapEntry<String, int>> heads = bothAllHeads.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    debugPrint('「キャラ全てに」前面 6 个字的分布（看有没有「自分の」这种自我限定）：');
+    for (final MapEntry<String, int> e in heads) {
+      debugPrint('  「${e.key}」  ${e.value}');
+    }
     for (final String s in bothAllSamples) {
       debugPrint('  · $s');
     }

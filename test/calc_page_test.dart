@@ -410,7 +410,7 @@ void main() {
     testWidgets('目标待定：选卡面板把双方都列出来', (tester) async {
       await pumpCalc(tester, await boot(tester));
       // 页面先渲染「对方场地」，所以 Icons.add 的前 6 个是对方那侧的格子。
-      // 先在我方（第 7 个）放一张，再让 LO-0116 落到对方第一格。
+      // 先在我方（第 7 个）放一张，再让目标待定的那张落到对方第一格。
       await tester.tap(find.byIcon(Icons.add).at(6));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).first, 'LO-0001');
@@ -422,9 +422,10 @@ void main() {
             .first,
       );
       await tester.pumpAndSettle();
-      await placeCard(tester, 'LO-0116'); // 「キャラ全てにＡＰ＋１・ＤＰ＋１」→ 目标待定
+      // LO-0239：「{キャラ１体}にＤＭＧ－３する。」→ 目标待定（算不出是哪一体）
+      await placeCard(tester, 'LO-0239');
 
-      await tester.tap(find.byKey(const ValueKey<String>('calc_slot_LO-0116')));
+      await tester.tap(find.byKey(const ValueKey<String>('calc_slot_LO-0239')));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, '套用').first);
       await tester.pumpAndSettle();

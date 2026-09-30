@@ -385,5 +385,60 @@ void main() {
       expect(identical(mine.af[0].autoMods.first.sourceSlot, mine.af[0]), isTrue);
       expect(identical(mine.af[1].autoMods.first.sourceSlot, mine.af[1]), isTrue);
     });
+
+    test('「キャラ全てに」= 双方全体', () {
+      expect(
+        EffectParser.parse(card('P11', 'バトル参加キャラ全てにＡＰ＋４する。'))
+            .first
+            .target,
+        EffectTarget.bothAll,
+      );
+      expect(
+        EffectParser.parse(
+                card('P12', 'コストが２点以下のキャラ全てにＡＰ＋１する。'))
+            .first
+            .target,
+        EffectTarget.bothAll,
+      );
+    });
+
+    test('写了「味方」「相手」的照样按那一边算（别被双方全体抢走）', () {
+      expect(
+        EffectParser.parse(card('P13', '[常時] 味方キャラ全てにＡＰ＋１する。'))
+            .first
+            .target,
+        EffectTarget.allyAll,
+      );
+      expect(
+        EffectParser.parse(card('P14', '[宣言] 相手キャラ全てにＤＰ－１する。'))
+            .first
+            .target,
+        EffectTarget.enemyAll,
+      );
+    });
+
+    test('「〜を除くキャラ全てに」算不准 → 保守地留给玩家', () {
+      expect(
+        EffectParser.parse(
+                card('P15', '[誘発] 味方キャラを除くキャラ全てにＡＰ＋１する。'))
+            .first
+            .target,
+        EffectTarget.unknown,
+      );
+    });
+
+    test('双方全体：放上场两边的人都一起吃', () {
+      final CalcSide mine = CalcSide();
+      final CalcSide theirs = CalcSide();
+      mine.af[0].code = 'P16';
+      theirs.af[0].code = 'P17';
+      final Map<String, LyceeCard> cards = <String, LyceeCard>{
+        'P16': card('P16', '[常時] キャラ全てにＡＰ＋１する。'),
+        'P17': card('P17', ''),
+      };
+      recomputeAuto(mine, theirs, (String k) => cards[k]);
+      expect(mine.af[0].autoMods.first.ap, 1);
+      expect(theirs.af[0].autoMods.first.ap, 1, reason: '对面的人也要吃到');
+    });
   });
 }

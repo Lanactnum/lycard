@@ -44,6 +44,8 @@ void main() {
     int staleAlways = 0, staleSelf = 0, varMissed = 0;
     int oneAlly = 0, oneEnemy = 0, unknown = 0;
     int chargeCards = 0, chargeParsed = 0, chargeVerbOnly = 0;
+    int bothAllUnknown = 0;
+    final List<String> bothAllSamples = <String>[];
     int cardsWithBonus = 0;
     final List<String> staleAlwaysSamples = <String>[];
     final List<String> staleSelfSamples = <String>[];
@@ -88,6 +90,17 @@ void main() {
           if (staleAlwaysSamples.length < 3) {
             staleAlwaysSamples.add('${c.code}  ${raw.replaceAll('\n', ' ')}\n'
                 '      ← ${b.summary}');
+          }
+        }
+        // ⑤ 「キャラ全てに」= 双方全体，却落进「目标待定」→ 玩家只能选一格
+        final int kAll = pre.lastIndexOf('キャラ全てに');
+        if (b.target == EffectTarget.unknown && kAll > 0) {
+          final String head = pre.substring(kAll - 8 < 0 ? 0 : kAll - 8, kAll);
+          if (!head.contains('味方') && !head.contains('相手')) {
+            bothAllUnknown++;
+            if (bothAllSamples.length < 5) {
+              bothAllSamples.add('${c.code}  ${raw.replaceAll('\n', ' ')}');
+            }
           }
         }
         if (selfBracket.hasMatch(pre) && b.target != EffectTarget.self) {
@@ -143,6 +156,12 @@ void main() {
     debugPrint('---- ③ ＡＰ＋[变量] 整条看不到（应为 0）----');
     debugPrint('有变量写法却一条变量条目都没解析出的卡：$varMissed');
     for (final String s in varMissSamples) {
+      debugPrint('  · $s');
+    }
+
+    debugPrint('---- ⑤ 「キャラ全てに」= 双方全体，却要玩家只选一格 ----');
+    debugPrint('这种漏算：$bothAllUnknown 条');
+    for (final String s in bothAllSamples) {
       debugPrint('  · $s');
     }
 

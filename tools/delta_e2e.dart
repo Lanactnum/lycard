@@ -22,12 +22,18 @@ void log(Object? s) => stdout.writeln(s);
 
 String mb(int bytes) => '${(bytes / 1048576).toStringAsFixed(1)} MB';
 
+/// 用法：dart run tools/delta_e2e.dart [旧包] [新包] [补丁]
+/// 不带参数就用 0.85.3 → 0.85.4 那对（历史验证用）。
 Future<void> main(List<String> args) async {
   final root = Directory.current;
-  final oldApk = File('${root.path}/dist/lycard-0.85.3-arm64.apk');
-  final newApk = File('${root.path}/dist/lycard-0.85.4-arm64.apk');
-  final patch = File(args.isNotEmpty
-      ? args.first
+  final oldApk = File(args.isNotEmpty
+      ? args[0]
+      : '${root.path}/dist/lycard-0.85.3-arm64.apk');
+  final newApk = File(args.length > 1
+      ? args[1]
+      : '${root.path}/dist/lycard-0.85.4-arm64.apk');
+  final patch = File(args.length > 2
+      ? args[2]
       : 'C:/Users/Administrator/AppData/Local/hermes/profiles/1/cache/scratch/d0854.lycpatch');
   final out = File('${root.path}/dist/__delta_out.apk');
 

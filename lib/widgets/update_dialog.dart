@@ -35,7 +35,8 @@ class UpdateDialog extends StatefulWidget {
   State<UpdateDialog> createState() => _UpdateDialogState();
 }
 
-class _UpdateDialogState extends State<UpdateDialog> {
+class _UpdateDialogState extends State<UpdateDialog>
+    with WidgetsBindingObserver {
   final UpdateDownload _dl = UpdateDownload.instance;
 
   File? _file;
@@ -54,7 +55,28 @@ class _UpdateDialogState extends State<UpdateDialog> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _prepare();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// 从「安装未知应用」设置页回来时自动接着装。
+  ///
+  /// 不去系统设置里点一圈的话，`canInstall()` 要等用户再点一次「安装」才知道
+  /// 权限开了 —— 明明刚去开过，回来还得再点一下，很别扭。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !_needPermission) return;
+    ApkInstaller.canInstall().then((ok) {
+      if (!mounted || !ok) return;
+      setState(() => _needPermission = false);
+      _install();
+    });
   }
 
   /// 算好安装包落在哪个文件上（文件名自带版本号和 arm64/universal 标记），
@@ -161,10 +183,13 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 ? (_patchSize > 0 ? _patchSize : (live?.total ?? 0))
                 : (_fullSize > 0 ? _fullSize : (live?.total ?? 0));
             final received = running ? (live?.received ?? have) : have;
+            // 「下好了没」以「下载真的返回了成功」为准；
+            // 万一 GitHub 没给 size，光比大小会永远判定成没下完 → 用户装不了。
             final done = !running &&
                 phase == UpdatePhase.idle &&
-                _fullSize > 0 &&
-                have >= _fullSize;
+                ((_dl.completed.value?.path != null &&
+                        _dl.completed.value!.path == _file?.path) ||
+                    (_fullSize > 0 && have >= _fullSize));
 
             return AlertDialog(
               title: Text('lycard ${widget.update.latestVersion}'),

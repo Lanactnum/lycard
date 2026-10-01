@@ -668,6 +668,53 @@ void main() {
       expect(freed, 4000);
     });
   });
+
+  group('「下好了」的判定（别让用户下完了却装不了）', () {
+    late Directory tmp;
+    setUp(() async {
+      tmp = await Directory.systemTemp.createTemp('lycard_done_test');
+    });
+    tearDown(() async {
+      if (tmp.existsSync()) await tmp.delete(recursive: true);
+    });
+
+    test('下载成功才记 completed，重新开始时清掉', () async {
+      final dl = UpdateDownload.instance;
+      final out = File('${tmp.path}/lycard-0.85.5-arm64.apk');
+      final body = List<int>.filled(4096, 7);
+      final client = MockClient(
+        (http.Request req) async => http.Response.bytes(
+          body,
+          200,
+          headers: <String, String>{'content-length': '${body.length}'},
+        ),
+      );
+
+      dl.completed.value = null;
+      final r = await dl.downloadFull(
+        url: Uri.parse('https://x/a.apk'),
+        file: out,
+        expectedSize: body.length,
+        client: client,
+      );
+      expect(r, isNotNull);
+      expect(dl.completed.value?.path, out.path, reason: '下完了要记上');
+      expect(out.lengthSync(), body.length);
+
+      // 服务端报错 → 这次不算完成，不能还留着上一次的标记
+      final bad = MockClient(
+        (http.Request req) async => http.Response('nope', 500),
+      );
+      final r2 = await dl.downloadFull(
+        url: Uri.parse('https://x/a.apk'),
+        file: File('${tmp.path}/other.apk'),
+        expectedSize: 4096,
+        client: bad,
+      );
+      expect(r2, isNull);
+      expect(dl.completed.value, isNull, reason: '失败要把标记清掉，免得界面显示「已经下好了」');
+    });
+  });
 }
 
 /// 造一个差分补丁（和 tools/make_delta.py 的格式一致），给测试用。

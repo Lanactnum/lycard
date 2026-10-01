@@ -368,10 +368,17 @@ class UpdateDownload {
   /// 当前在写的文件
   File? target;
 
+  /// **真的下完 / 拼好**的那个文件。
+  ///
+  /// 别用「文件大小 == 整包大小」来判断能不能装 —— 万一 GitHub 没给 size，
+  /// 界面就会永远停在「继续更新」，用户明明下完了却装不了。
+  final ValueNotifier<File?> completed = ValueNotifier<File?>(null);
+
   bool _cancel = false;
 
   void _reset() {
     _cancel = false;
+    completed.value = null;
     error.value = null;
     deltaNote.value = null;
     speed.value = null;
@@ -415,13 +422,15 @@ class UpdateDownload {
     );
     running.value = true;
     try {
-      return await downloadApk(
+      final r = await downloadApk(
         url: url,
         target: file,
         client: client,
         isCancelled: () => _cancel,
         onProgress: _tick,
       );
+      if (r != null) completed.value = r;
+      return r;
     } catch (e) {
       error.value = '$e';
       return null;
@@ -483,6 +492,7 @@ class UpdateDownload {
           try {
             await patchFile.delete();
           } catch (_) {}
+          completed.value = apkFile;
           return apkFile;
         } on DeltaPatchCancelled {
           return null;
@@ -511,13 +521,15 @@ class UpdateDownload {
         total: update.downloadSize ?? 0,
         resumedFrom: 0,
       );
-      return await downloadApk(
+      final r = await downloadApk(
         url: url,
         target: apkFile,
         client: client,
         isCancelled: () => _cancel,
         onProgress: _tick,
       );
+      if (r != null) completed.value = r;
+      return r;
     } catch (e) {
       error.value = '$e';
       return null;

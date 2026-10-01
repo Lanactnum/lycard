@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../services/update_service.dart';
+import '../widgets/update_dialog.dart';
 import 'license_page.dart';
 import 'tutorial_page.dart';
 import 'feedback_page.dart';
@@ -43,6 +43,17 @@ class _AboutPageState extends State<AboutPage> {
     } finally {
       if (mounted) setState(() => _checkingUpdate = false);
     }
+  }
+
+  /// 应用内下载并安装（不跳浏览器）
+  Future<void> _startUpdate() async {
+    final u = _update;
+    if (u == null || !mounted) return;
+    if (u.downloadUrl == null) {
+      setState(() => _updateError = '这个版本没挂安装包，过一会儿再试');
+      return;
+    }
+    await showUpdateDialog(context, u);
   }
 
   @override
@@ -168,10 +179,10 @@ class _AboutPageState extends State<AboutPage> {
           if (_update?.isNewer == true) ...[
             ListTile(
               leading: const Icon(Icons.download_outlined),
-              title: Text('下载 lycard ${_update!.latestVersion}'),
-              subtitle: Text(_update!.downloadUrl == null ? '打开 GitHub Release 页面' : '下载 APK 安装包'),
-              trailing: const Icon(Icons.open_in_new),
-              onTap: () => launchUrl(_update!.downloadUrl ?? _update!.releaseUrl),
+              title: Text('更新到 lycard ${_update!.latestVersion}'),
+              subtitle: const Text('在应用内下载并安装，不用跳浏览器'),
+              trailing: const Icon(Icons.system_update_alt),
+              onTap: _startUpdate,
             ),
             if (_update!.notes.isNotEmpty)
               Padding(

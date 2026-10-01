@@ -3,16 +3,24 @@ package com.lycard.app
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.graphics.BitmapFactory
+import androidx.core.content.FileProvider
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val channelName = "lycard/icon"
+
+    /** 应用内更新：查安装权限 / 拉起系统安装器 */
+    private val updateChannelName = "lycard/update"
 
     /** 图标别名（activity-alias 名字 → 资源名） */
     private val aliases = mapOf(
@@ -46,6 +54,62 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, updateChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "canInstall" -> result.success(canInstall())
+                    "openInstallSettings" -> result.success(openInstallSettings())
+                    "install" -> result.success(installApk(call.argument<String>("path")))
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /** 有没有「安装未知应用」的权限（Android 8 起每个应用单独开关，之前恒为 true） */
+    private fun canInstall(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            packageManager.canRequestPackageInstalls()
+        } else {
+            true
+        }
+
+    /** 跳到「安装未知应用」的系统设置页 */
+    private fun openInstallSettings(): Boolean = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        }
+        true
+    } catch (e: Exception) {
+        false
+    }
+
+    /**
+     * 拉起系统安装器装下好的 APK。
+     *
+     * 更新包在 App 的外部私有目录（/sdcard/Android/data/<包名>/files/update/），
+     * 系统安装器**读不到这个路径**，必须走 FileProvider 换个 content:// 再授权给它。
+     */
+    private fun installApk(path: String?): Boolean {
+        if (path == null) return false
+        return try {
+            val file = File(path)
+            if (!file.exists()) return false
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun currentAlias(): String {

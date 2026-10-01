@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 更新包装在哪：App 的外部私有目录
+         /sdcard/Android/data/com.lycard.app/files/update/lycard-x.y.z-arm64.apk -->
+    <external-files-path name="update" path="." />
+    <!-- 极少数机器外部目录拿不到时的退路（内部私有目录） -->
+    <files-path name="internal" path="." />
+</paths>

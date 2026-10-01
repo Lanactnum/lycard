@@ -27,6 +27,8 @@ import 'widgets/clipboard_sheet.dart';
 import 'widgets/deck_import_dialog.dart';
 import 'widgets/card_route.dart';
 import 'l10n/l10n.dart';
+import 'services/update_service.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 Future<void> main() async {
   // 诊断用：--dart-define=FRAME_LOG=1 时把慢帧（>32ms）打到 logcat，
@@ -65,7 +67,26 @@ Future<void> main() async {
   CardRepository.instance.setEdits(appState.cardEdits);
   // 垃圾桶里超过 15 天的自动销毁（不阻塞启动）
   StorageManager.instance.purgeExpired();
+  // 更新包用完就清（不阻塞启动）
+  _cleanUpdateArtifacts();
   runApp(LyceeApp(appState: appState));
+}
+
+/// 清掉已经用不上的更新包（用户明确要求：**更新完记得清理更新包**）。
+///
+/// 装上的版本（文件里版本号 <= 当前版本）和躺太久的残包都删掉 ——
+/// 一个更新包 573 MB，留着纯属白占。失败了也不影响启动。
+void _cleanUpdateArtifacts() {
+  PackageInfo.fromPlatform().then((info) {
+    cleanUpdateDir(currentVersion: info.version).then((int freed) {
+      if (freed > 0) {
+        debugPrint(
+            '清掉用不上的更新包：${(freed / 1048576).toStringAsFixed(1)} MB');
+      }
+    });
+  }).catchError((Object _) {
+    // 清不了就算了，绝不能因为清理影响启动
+  });
 }
 
 /// 调试用：`--dart-define=START_CARD=LO-0575` 时启动直接进入那张卡的详情页。

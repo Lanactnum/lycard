@@ -60,9 +60,17 @@ class MainActivity : FlutterActivity() {
                     "canInstall" -> result.success(canInstall())
                     "openInstallSettings" -> result.success(openInstallSettings())
                     "install" -> result.success(installApk(call.argument<String>("path")))
+                    "apkPath" -> result.success(apkPath())
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /** 本机已安装的 APK 在哪 —— 差分更新拿它当输入 */
+    private fun apkPath(): String? = try {
+        packageManager.getApplicationInfo(packageName, 0).sourceDir
+    } catch (e: Exception) {
+        null
     }
 
     /** 有没有「安装未知应用」的权限（Android 8 起每个应用单独开关，之前恒为 true） */

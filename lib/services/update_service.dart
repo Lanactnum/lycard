@@ -8,6 +8,8 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'delta_patch.dart';
+
 const kUpdateRepository = 'Lanactnum/lycard-updates';
 const kUpdateApi = 'https://api.github.com/repos/$kUpdateRepository/releases/latest';
 
@@ -19,6 +21,9 @@ class AppUpdate {
     required this.downloadUrl,
     required this.apkName,
     required this.downloadSize,
+    this.patchUrl,
+    this.patchSize,
+    this.patchName,
     required this.notes,
     required this.publishedAt,
   });
@@ -34,6 +39,19 @@ class AppUpdate {
 
   /// 安装包字节数（GitHub 给的）。用来判断「下完了没」和算进度。
   final int? downloadSize;
+
+  /// 差分补丁的下载地址（Release 里挂的 `<包名>.from-<旧版本>.lycpatch`）。
+  ///
+  /// 有它的话更新只要下十几 MB —— APK 里 86% 是内置卡图，而卡图在版本之间
+  /// 从不变化，所以没必要每次重下 573 MB。补丁对不上（不是从本机这个版本升）
+  /// 时会自动退回整包下载，不会把用户卡死。
+  final Uri? patchUrl;
+
+  /// 补丁字节数
+  final int? patchSize;
+
+  /// 补丁文件名
+  final String? patchName;
   final String notes;
   final DateTime? publishedAt;
 
@@ -79,6 +97,8 @@ class UpdateService {
     final assets = (json['assets'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>();
     final apk = pickApk(assets, abiToken: abiToken);
+    // 补丁要「从本机当前这个版本升上来」的那一个
+    final patch = pickPatch(assets, from: info.version, abiToken: abiToken);
     final published = DateTime.tryParse('${json['published_at'] ?? ''}');
     final update = AppUpdate(
       currentVersion: info.version,
@@ -89,6 +109,11 @@ class UpdateService {
           : Uri.parse('${apk['browser_download_url']}'),
       apkName: '${apk['name'] ?? ''}',
       downloadSize: apk['size'] is int ? apk['size'] as int : null,
+      patchUrl: patch['browser_download_url'] == null
+          ? null
+          : Uri.parse('${patch['browser_download_url']}'),
+      patchSize: patch['size'] is int ? patch['size'] as int : null,
+      patchName: patch.isEmpty ? null : '${patch['name'] ?? ''}',
       notes: '${json['body'] ?? ''}'.trim(),
       publishedAt: published,
     );
@@ -120,6 +145,34 @@ Map<String, dynamic> pickApk(
     }
   }
   return apks.first;
+}
+
+/// 从 Release 附件里挑「**从 [from] 升到本版**」的差分补丁。
+///
+/// 命名约定：`<安装包名>.from-<旧版本>.lycpatch`，例如
+/// `lycard-0.85.5-arm64.apk.from-0.85.4.lycpatch`。
+/// 认不出来的（版本对不上、架构对不上）一律返回空 —— 那就老实下整包，
+/// **绝不能拿一个来路不明的补丁去应用**。
+Map<String, dynamic> pickPatch(
+  Iterable<Map<String, dynamic>> assets, {
+  required String from,
+  String? abiToken,
+  bool defaultToDeviceAbi = true,
+}) {
+  final patches = assets
+      .where((a) => '${a['name']}'.toLowerCase().endsWith('.lycpatch'))
+      .toList();
+  if (patches.isEmpty) return <String, dynamic>{};
+  final want = abiToken ?? (defaultToDeviceAbi ? _abiToken() : null);
+  final token = 'from-$from';
+  for (final a in patches) {
+    final n = '${a['name']}'.toLowerCase();
+    if (!n.contains(token)) continue;
+    // 架构也要对得上：arm64 包要用 arm64 的补丁，全架构包用 universal 的
+    if (want != null && !n.contains(want)) continue;
+    return a;
+  }
+  return <String, dynamic>{};
 }
 
 /// 本机合适的包名标记；非 Android 或架构取不到时返回 null（那就用第一个）。
@@ -179,8 +232,13 @@ class DownloadProgress {
 ///
 /// 跟卡图数据包同一个大目录下面 —— 卸载 App 会一起清掉，也不会跑进相册或「下载」。
 Future<Directory> updateDir() async {
-  final base =
-      await getExternalStorageDirectory() ?? await getApplicationSupportDirectory();
+  Directory? base;
+  try {
+    base = await getExternalStorageDirectory();
+  } catch (_) {
+    // 插件不可用（测试环境）/ 外部目录拿不到，走下面的退路
+  }
+  base ??= await getApplicationSupportDirectory();
   final dir = Directory('${base.path}/update');
   if (!dir.existsSync()) await dir.create(recursive: true);
   return dir;
@@ -263,9 +321,23 @@ Future<File?> downloadApk({
   }
 }
 
-/// 全局的「当前更新下载」。
+/// 更新进行到哪一步了
+enum UpdatePhase {
+  idle,
+
+  /// 在下差分补丁（十几 MB）
+  downloadingPatch,
+
+  /// 补丁下好了，正在拼出新安装包（几百 MB 的本地运算，几秒）
+  applyingPatch,
+
+  /// 在下整个安装包（几百 MB）
+  downloadingFull,
+}
+
+/// 全局的「当前更新」。
 ///
-/// 面板关了也接着下（进度存在这里），重开面板能接着看 —— 顺手也挡住了
+/// 面板关了也接着跑（进度存在这里），重开面板能接着看 —— 顺手也挡住了
 /// 「面板关了又开、再点一次开始」把同一个文件写坏的情况。
 class UpdateDownload {
   UpdateDownload._();
@@ -275,35 +347,66 @@ class UpdateDownload {
   final ValueNotifier<DownloadProgress?> progress =
       ValueNotifier<DownloadProgress?>(null);
 
-  /// 是否正在下
+  /// 是否正在跑
   final ValueNotifier<bool> running = ValueNotifier<bool>(false);
 
-  /// 下载速度（字节/秒）—— 拿两次进度回调的时间差算，刚开始时是 null
+  /// 现在在哪一步
+  final ValueNotifier<UpdatePhase> phase =
+      ValueNotifier<UpdatePhase>(UpdatePhase.idle);
+
+  /// 速度（字节/秒）—— 拿两次进度回调的时间差算，刚开始时是 null
   final ValueNotifier<double?> speed = ValueNotifier<double?>(null);
   DateTime? _lastAt;
   int? _lastBytes;
 
-  /// 出错信息（下次开始下载时清空）
+  /// 出错信息（下次开始时清空）
   final ValueNotifier<String?> error = ValueNotifier<String?>(null);
 
-  /// 当前下的是哪个文件
+  /// 差分没走通、改下整包时的说明（给界面提示用）
+  final ValueNotifier<String?> deltaNote = ValueNotifier<String?>(null);
+
+  /// 当前在写的文件
   File? target;
 
   bool _cancel = false;
 
-  /// 开始 / 继续下载。[expectedSize] 是 GitHub 报的包大小（拿来判断下完了没）。
-  Future<File?> start({
-    required Uri url,
-    required File file,
-    int? expectedSize,
-  }) async {
-    if (running.value) return null;
-    target = file;
+  void _reset() {
     _cancel = false;
     error.value = null;
+    deltaNote.value = null;
     speed.value = null;
     _lastAt = null;
     _lastBytes = null;
+  }
+
+  void _tick(DownloadProgress p) {
+    final now = DateTime.now();
+    if (_lastAt != null && _lastBytes != null) {
+      final ms = now.difference(_lastAt!).inMilliseconds;
+      // 太密的回调算出来的速度会乱跳，300ms 一次就够
+      if (ms > 300) {
+        speed.value = (p.received - _lastBytes!) * 1000 / ms;
+        _lastAt = now;
+        _lastBytes = p.received;
+      }
+    } else {
+      _lastAt = now;
+      _lastBytes = p.received;
+    }
+    progress.value = p;
+  }
+
+  /// 只下整包（[file] 已经有一截就从断点接着下）。
+  Future<File?> downloadFull({
+    required Uri url,
+    required File file,
+    int? expectedSize,
+    http.Client? client,
+  }) async {
+    if (running.value) return null;
+    target = file;
+    _reset();
+    phase.value = UpdatePhase.downloadingFull;
     final have = file.existsSync() ? file.lengthSync() : 0;
     progress.value = DownloadProgress(
       received: have,
@@ -312,33 +415,115 @@ class UpdateDownload {
     );
     running.value = true;
     try {
-      final out = await downloadApk(
+      return await downloadApk(
         url: url,
         target: file,
+        client: client,
         isCancelled: () => _cancel,
-        onProgress: (p) {
-          final now = DateTime.now();
-          if (_lastAt != null && _lastBytes != null) {
-            final ms = now.difference(_lastAt!).inMilliseconds;
-            // 太密的回调算出来的速度会乱跳，300ms 一次就够
-            if (ms > 300) {
-              speed.value = (p.received - _lastBytes!) * 1000 / ms;
-              _lastAt = now;
-              _lastBytes = p.received;
-            }
-          } else {
-            _lastAt = now;
-            _lastBytes = p.received;
-          }
-          progress.value = p;
-        },
+        onProgress: _tick,
       );
-      return out;
     } catch (e) {
       error.value = '$e';
       return null;
     } finally {
       running.value = false;
+      if (phase.value != UpdatePhase.idle) phase.value = UpdatePhase.idle;
+    }
+  }
+
+  /// 智能更新：**能差分就差分**（只下十几 MB），不行就老实下整包。
+  ///
+  /// [selfApk] = 本机已安装的那个 APK（补丁的输入）。拿不到就只会走整包。
+  /// 差分任何一步不对（补丁不是从本机版本升的、拼出来的哈希不符、磁盘写不下）
+  /// 都**自动退回整包下载** —— 用户不需要知道发生了什么，更不该被卡住。
+  Future<File?> startUpdate({
+    required AppUpdate update,
+    required Directory dir,
+    required File apkFile,
+    File? selfApk,
+    http.Client? client,
+  }) async {
+    if (running.value) return null;
+    _reset();
+    running.value = true;
+    try {
+      final patchUrl = update.patchUrl;
+      if (patchUrl != null && selfApk != null && selfApk.existsSync()) {
+        final patchFile = File('${dir.path}/${update.patchName ?? 'update.lycpatch'}');
+        target = patchFile;
+        phase.value = UpdatePhase.downloadingPatch;
+        final got = await downloadApk(
+          url: patchUrl,
+          target: patchFile,
+          client: client,
+          isCancelled: () => _cancel,
+          onProgress: _tick,
+        );
+        if (got == null) return null; // 用户取消
+        if (_cancel) return null;
+
+        phase.value = UpdatePhase.applyingPatch;
+        // 应用期间没有"下载进度"，界面上给个转圈
+        progress.value = DownloadProgress(
+          received: 0,
+          total: update.downloadSize ?? 0,
+          resumedFrom: 0,
+        );
+        try {
+          await DeltaPatch.apply(
+            oldApk: selfApk,
+            patch: patchFile,
+            out: apkFile,
+            isCancelled: () => _cancel,
+            onProgress: (done, total) => _tick(
+              DownloadProgress(received: done, total: total, resumedFrom: 0),
+            ),
+          );
+          // 拼好了，补丁就没用了 —— 用户明确要求「更新完记得清理更新包」
+          try {
+            await patchFile.delete();
+          } catch (_) {}
+          return apkFile;
+        } on DeltaPatchCancelled {
+          return null;
+        } catch (e) {
+          // 差分失败 → 退回整包，别把用户卡在这儿
+          deltaNote.value = '差分更新没走通（$e），已改用完整下载';
+          try {
+            await patchFile.delete();
+          } catch (_) {}
+          try {
+            if (await apkFile.exists()) await apkFile.delete();
+          } catch (_) {}
+        }
+      }
+
+      final url = update.downloadUrl;
+      if (url == null) {
+        error.value = '这个版本没挂安装包';
+        return null;
+      }
+      target = apkFile;
+      phase.value = UpdatePhase.downloadingFull;
+      final have = apkFile.existsSync() ? apkFile.lengthSync() : 0;
+      progress.value = DownloadProgress(
+        received: have,
+        total: update.downloadSize ?? 0,
+        resumedFrom: 0,
+      );
+      return await downloadApk(
+        url: url,
+        target: apkFile,
+        client: client,
+        isCancelled: () => _cancel,
+        onProgress: _tick,
+      );
+    } catch (e) {
+      error.value = '$e';
+      return null;
+    } finally {
+      running.value = false;
+      phase.value = UpdatePhase.idle;
     }
   }
 
@@ -346,4 +531,54 @@ class UpdateDownload {
   void cancel() {
     if (running.value) _cancel = true;
   }
+}
+
+/// 清掉已经用不上的更新包（用户明确要求：**更新完记得清理更新包**）。
+///
+/// 规则：
+/// - 文件名里带版本号，**版本 <= 当前装的版本** → 已经装上了，删掉
+/// - 版本比当前新、但躺在那里超过 [staleAfter] 没人管（下到一半换了版本、
+///   或者下载完没装就退了）→ 也删掉，免得白占几百 MB
+///
+/// 返回删掉了多少字节。
+Future<int> cleanUpdateDir({
+  String? currentVersion,
+  Duration staleAfter = const Duration(days: 7),
+  DateTime? now,
+  Directory? dir,
+}) async {
+  var freed = 0;
+  try {
+    final target = dir ?? await updateDir();
+    if (!target.existsSync()) return 0;
+    final at = now ?? DateTime.now();
+    final verRe = RegExp(r'lycard-(\d+\.\d+\.\d+)');
+    for (final e in target.listSync()) {
+      if (e is! File) continue;
+      final name = e.uri.pathSegments.last;
+      if (!name.endsWith('.apk') && !name.endsWith('.lycpatch')) continue;
+      final m = verRe.firstMatch(name);
+      final fileVer = m?.group(1);
+      var doomed = false;
+      if (fileVer != null && currentVersion != null) {
+        // 装上了就已经没用了
+        doomed = _compareVersions(fileVer, currentVersion) <= 0;
+      }
+      if (!doomed) {
+        // 躺太久的残file
+        final age = at.difference(e.statSync().modified);
+        doomed = age > staleAfter;
+      }
+      if (doomed) {
+        final n = e.lengthSync();
+        try {
+          await e.delete();
+          freed += n;
+        } catch (_) {}
+      }
+    }
+  } catch (_) {
+    // 清理失败无所谓，绝不能因此影响启动
+  }
+  return freed;
 }

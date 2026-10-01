@@ -27,6 +27,18 @@ class ApkInstaller {
     }
   }
 
+  /// 本机**已安装的**那个 APK 在哪。
+  ///
+  /// 差分更新要拿它当输入（补丁只说「从它哪里复制哪一段」）。拿不到就返回 null，
+  /// 调用方会退回整包下载 —— 差分是优化，不能因为它把更新搞失败。
+  static Future<String?> apkPath() async {
+    try {
+      return await _channel.invokeMethod<String>('apkPath');
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 拉起系统安装器。false = 没拉起来（文件没了 / 没权限 / ROM 拦了）。
   static Future<bool> install(String path) async {
     try {

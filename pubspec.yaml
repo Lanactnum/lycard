@@ -1,7 +1,7 @@
 name: lycee_app
 description: "lycard —— Lycee Overture 卡组助手。由镧锕Lanactnum的大肥鱼制作，以 MIT 协议开源。"
 publish_to: 'none'
-version: 0.85.4+97
+version: 0.85.5+98
 
 environment:
   sdk: ^3.13.0
@@ -27,6 +27,7 @@ dependencies:
   google_mlkit_text_recognition: ^0.17.1
   google_mlkit_barcode_scanning: ^0.16.1
   archive: ^4.3.0
+  crypto: ^3.0.5   # 差分更新补丁要核对哈希（纯 Dart，无原生依赖）
   url_launcher: ^6.3.1
   pdf: ^3.13.1
   printing: ^5.15.1

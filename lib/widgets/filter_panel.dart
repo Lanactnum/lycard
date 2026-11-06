@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../data/card_filter.dart';
 import '../data/card_repository.dart';
 import '../data/keyword_db.dart';
+import '../state/app_state.dart';
 import 'glass.dart';
 import 'tags.dart';
 import '../models/lycee_card.dart';
@@ -46,6 +48,7 @@ class _FilterPanelState extends State<FilterPanel> {
   Widget build(BuildContext context) {
     final repo = CardRepository.instance;
     final scheme = Theme.of(context).colorScheme;
+    final state = context.watch<AppState>();
 
     return Glass(
             margin: const EdgeInsets.fromLTRB(10, 2, 10, 6),
@@ -62,6 +65,57 @@ class _FilterPanelState extends State<FilterPanel> {
                   tr('已选 {0} 个条件', [f.activeCount]),
                   style: TextStyle(fontSize: 12, color: scheme.primary),
                 ),
+              ),
+              // 预设菜单
+              if (state.filterPresets.isNotEmpty)
+                PopupMenuButton<String>(
+                  icon: Icon(Icons.bookmarks_outlined, size: 20),
+                  tooltip: tr('应用预设'),
+                  onSelected: (name) {
+                    final preset = state.filterPresets.firstWhere((p) => p.name == name);
+                    f.clear();
+                    f.colors.addAll(preset.filter.colors);
+                    f.kinds.addAll(preset.filter.kinds);
+                    f.types.addAll(preset.filter.types);
+                    f.rarities.addAll(preset.filter.rarities);
+                    f.keywords.addAll(preset.filter.keywords);
+                    f.costMin = preset.filter.costMin;
+                    f.costMax = preset.filter.costMax;
+                    f.exMin = preset.filter.exMin;
+                    f.exMax = preset.filter.exMax;
+                    f.apMin = preset.filter.apMin;
+                    f.apMax = preset.filter.apMax;
+                    f.dpMin = preset.filter.dpMin;
+                    f.dpMax = preset.filter.dpMax;
+                    f.spMin = preset.filter.spMin;
+                    f.spMax = preset.filter.spMax;
+                    f.dmgMin = preset.filter.dmgMin;
+                    f.dmgMax = preset.filter.dmgMax;
+                    _hit();
+                  },
+                  itemBuilder: (c) => [
+                    for (final p in state.filterPresets)
+                      PopupMenuItem(
+                        value: p.name,
+                        child: Row(
+                          children: [
+                            Expanded(child: Text(p.name)),
+                            IconButton(
+                              icon: Icon(Icons.delete_outline, size: 18),
+                              onPressed: () {
+                                Navigator.pop(c);
+                                state.deleteFilterPreset(p.name);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              IconButton(
+                icon: Icon(Icons.bookmark_add_outlined, size: 20),
+                tooltip: tr('保存预设'),
+                onPressed: () => _savePreset(context, state),
               ),
               TextButton(
                 onPressed: () {
@@ -86,9 +140,47 @@ class _FilterPanelState extends State<FilterPanel> {
       ],
     ),
     );
-  }
+    }
 
-  /// 一个分类：标题 + （前 N 个）选项 + 展开/收起
+    Future<void> _savePreset(BuildContext context, AppState state) async {
+    final ctrl = TextEditingController();
+    final name = await showDialog<String>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: Text(tr('保存筛选预设')),
+      content: TextField(
+        controller: ctrl,
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: tr('预设名称'),
+          hintText: tr('如：低费雪角色'),
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(c),
+          child: Text(tr('取消')),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(c, ctrl.text.trim()),
+          child: Text(tr('保存')),
+        ),
+      ],
+    ),
+    );
+    ctrl.dispose();
+    if (name != null && name.isNotEmpty) {
+    state.saveFilterPreset(name, f);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr('已保存预设「{0}」', [name]))),
+      );
+    }
+    }
+    }
+
+    /// 一个分类：标题 + （前 N 个）选项 + 展开/收起
   Widget _section(
     String title,
     List<String> options,

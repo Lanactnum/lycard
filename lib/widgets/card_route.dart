@@ -89,10 +89,14 @@ class CardHero extends StatelessWidget {
 /// 会自动把"这一张"标记为正在打开：它由 Hero 负责飞，
 /// **不参与整页散开**，所以返回时是"落回原位"，
 /// 不会出现"先飞回来再插进去"的双重动画。
+/// 
+/// [cardList] 和 [currentIndex] 可选：传入时支持左右滑动切换卡片
 Future<T?> openCardDetail<T>(
   BuildContext context,
   String code, {
   String scope = 'list',
+  List<String>? cardList,
+  int? currentIndex,
 }) {
   // 先把输入焦点放掉。否则从卡详情返回时，系统会把焦点还给上一个
   // 页面里那个输入框（典型是检索页的搜索框），凭空弹出一个键盘 ——
@@ -101,20 +105,20 @@ Future<T?> openCardDetail<T>(
   FocusManager.instance.primaryFocus?.unfocus();
 
   Scatter.activeCode = code;
-  Scatter.play();
   return Navigator.of(context)
-      .push<T>(cardRoute<T>(
-        CardDetailPage(code: code, heroScope: scope),
-      ))
-      .whenComplete(() {
-    // 返回：把散开的收回来（进入动画的倒序）
-    Scatter.reset();
-    // 关键：**等"收回"动画彻底走完**再解除标记。
-    // 若立刻解除，被点的那一张会在收回进行到一半时突然被算进散开进度，
-    // 于是"落回原位 → 又跳到半散开位置 → 再飞回原位"，
-    // 看起来就是我们的动画做完后又插了一次列表。
-    Future.delayed(const Duration(milliseconds: 380), () {
-      if (Scatter.activeCode == code) Scatter.activeCode = null;
-    });
+      .push<T>(
+        cardRoute(
+          cardList != null && cardList.isNotEmpty
+              ? CardDetailPageView(
+                  codes: cardList,
+                  initialIndex: currentIndex ?? cardList.indexOf(code),
+                  scope: scope,
+                )
+              : CardDetailPage(code: code),
+        ),
+      )
+      .then((v) {
+    Scatter.activeCode = null;
+    return v;
   });
 }

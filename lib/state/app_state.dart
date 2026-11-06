@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/card_repository.dart';
 import '../data/bg_image.dart';
 import '../data/storage_manager.dart';
+import '../data/card_filter.dart';
 import '../models/card_edit.dart';
 import '../models/collect_info.dart';
 import '../models/lycee_card.dart';
@@ -16,6 +17,24 @@ import '../models/wish_card.dart';
 import '../data/deck_share.dart';
 import '../l10n/l10n.dart';
 import '../data/banlist.dart';
+
+/// 筛选预设
+class FilterPreset {
+  FilterPreset({required this.name, required this.filter});
+
+  final String name;
+  final CardFilter filter;
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'filter': filter.toJson(),
+  };
+
+  factory FilterPreset.fromJson(Map<String, dynamic> j) => FilterPreset(
+    name: j['name'] as String? ?? '',
+    filter: CardFilter.fromJson(j['filter'] as Map<String, dynamic>? ?? {}),
+  );
+}
 
 /// 一套主战构筑
 class Deck {
@@ -801,6 +820,7 @@ class AppState extends ChangeNotifier {
   final Set<String> _favorites = {}; // 特殊卡面收藏
   final Set<String> _owned = {}; // 已收集
   final Map<String, int> _ownedQty = {}; // 每种持有几张（没记就是 1）
+  final List<FilterPreset> _filterPresets = []; // 筛选预设
 
   /// 持有数量（没收集 = 0）
   int ownedQty(String code) => _owned.contains(code) ? (_ownedQty[code] ?? 1) : 0;
@@ -820,6 +840,25 @@ class AppState extends ChangeNotifier {
   bool isOwned(String code) => _owned.contains(code);
   Set<String> get owned => _owned;
   Set<String> get favorites => _favorites;
+
+  List<FilterPreset> get filterPresets => _filterPresets;
+
+  void saveFilterPreset(String name, CardFilter filter) {
+    final idx = _filterPresets.indexWhere((p) => p.name == name);
+    if (idx >= 0) {
+      _filterPresets[idx] = FilterPreset(name: name, filter: filter.copy());
+    } else {
+      _filterPresets.add(FilterPreset(name: name, filter: filter.copy()));
+    }
+    notifyListeners();
+    _save();
+  }
+
+  void deleteFilterPreset(String name) {
+    _filterPresets.removeWhere((p) => p.name == name);
+    notifyListeners();
+    _save();
+  }
 
   // ---------- 构筑 ----------
   final List<Deck> _decks = [];
@@ -998,6 +1037,14 @@ class AppState extends ChangeNotifier {
       ..clear()
       ..addAll(_prefs.getStringList('owned') ?? const []);
 
+    // 筛选预设
+    try {
+      _filterPresets
+        ..clear()
+        ..addAll((jsonDecode(_prefs.getString('filterPresets') ?? '[]') as List)
+            .map((e) => FilterPreset.fromJson(e as Map<String, dynamic>)));
+    } catch (_) {}
+
     final raw = _prefs.getString('decks');
     if (raw != null && raw.isNotEmpty) {
       try {
@@ -1064,6 +1111,7 @@ class AppState extends ChangeNotifier {
     await _prefs.setBool('statsVisible', _statsVisible);
     await _prefs.setString('valueUnit', _valueUnit);
     await _prefs.setString('wish', jsonEncode(_wish.map((w) => w.toJson()).toList()));
+    await _prefs.setString('filterPresets', jsonEncode(_filterPresets.map((p) => p.toJson()).toList()));
     await _prefs.setString('ownedQty', jsonEncode(_ownedQty));
     await _prefs.setString('cardEdits',
         jsonEncode(_cardEdits.map((k, v) => MapEntry(k, v.toJson()))));

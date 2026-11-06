@@ -37,6 +37,7 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   final _ctrl = TextEditingController();
   final _focus = FocusNode();
+  final _scrollController = ScrollController();
   // 搜索 / 筛选 两套结果各自独立，互不影响
   List<LyceeCard> _searchHits = const []; // 只由关键词决定
   List<LyceeCard> _filterHits = const []; // 只由筛选条件决定
@@ -55,17 +56,30 @@ class _SearchPageState extends State<SearchPage> {
   bool _selecting = false;
   final Set<String> _selected = {};
   bool _saving = false;
+  bool _cancelSaving = false;
   String _saveMsg = '';
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _scrollController.dispose();
     _ctrl.dispose();
     _focus.dispose();
     super.dispose();
   }
 
   Timer? _debounce;
+
+  /// 滚动监听：接近底部时自动加载下一页
+  void _onScroll() {
+    if (_scrollController.hasClients &&
+        _scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 300) {
+      if (_visibleCount < _results.length) {
+        setState(() => _shown = _visibleCount + _pageSize);
+      }
+    }
+  }
 
   /// 输入防抖：连续打字只搜最后一次
   void _onType(String q) {
@@ -147,6 +161,7 @@ class _SearchPageState extends State<SearchPage> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     // 调试：--dart-define=START_FILTER=color:雪;kind:キャラクター;costMax:1
     final spec = const String.fromEnvironment('START_FILTER');
     if (spec.isNotEmpty) {
@@ -406,29 +421,6 @@ class _SearchPageState extends State<SearchPage> {
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          IconButton(
-                            tooltip: state.searchNumberPad
-                                ? tr('切到文字键盘')
-                                : tr('切到数字键盘'),
-                            icon: Icon(
-                              state.searchNumberPad
-                                  ? Icons.dialpad
-                                  : Icons.keyboard,
-                            ),
-                            onPressed: () {
-                              final next = !state.searchNumberPad;
-                              state.setSearchNumberPad(next);
-                              // 光改 keyboardType 平台键盘不会换：得先把输入通道断掉，
-                              // 下一帧再连回来，新的 keyboardType 才生效
-                              _focus.unfocus();
-                              Future.delayed(
-                                const Duration(milliseconds: 90),
-                                () {
-                                  if (mounted) _focus.requestFocus();
-                                },
-                              );
-                            },
-                          ),
                           if (_q.isNotEmpty)
                             IconButton(
                               icon: const Icon(Icons.close),
@@ -437,6 +429,31 @@ class _SearchPageState extends State<SearchPage> {
                                 _runSearch('');
                               },
                             ),
+                          // 键盘切换（改为 Chip 样式更明显）
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(
+                                state.searchNumberPad ? '123' : 'ABC',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              selected: false,
+                              tooltip: state.searchNumberPad
+                                  ? tr('切到文字键盘')
+                                  : tr('切到数字键盘'),
+                              onSelected: (_) {
+                                final next = !state.searchNumberPad;
+                                state.setSearchNumberPad(next);
+                                _focus.unfocus();
+                                Future.delayed(
+                                  const Duration(milliseconds: 90),
+                                  () {
+                                    if (mounted) _focus.requestFocus();
+                                  },
+                                );
+                              },
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -454,7 +471,15 @@ class _SearchPageState extends State<SearchPage> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                     const SizedBox(width: 10),
-                    Text(_saveMsg, style: const TextStyle(fontSize: 12)),
+                    Expanded(
+                      child: Text(_saveMsg, style: const TextStyle(fontSize: 12)),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setState(() => _cancelSaving = true);
+                      },
+                      child: Text(tr('取消')),
+                    ),
                   ],
                 ),
               ),
@@ -505,6 +530,7 @@ class _SearchPageState extends State<SearchPage> {
                     ),
                     Expanded(
                       child: GridView.builder(
+                        controller: _scrollController,
                         padding: EdgeInsets.fromLTRB(
                           gap,
                           0,
@@ -549,19 +575,16 @@ class _SearchPageState extends State<SearchPage> {
                         },
                       ),
                     ),
+                    // 自动加载提示（当还有更多内容时）
                     if (_visibleCount < _results.length)
-                      SafeArea(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                          child: OutlinedButton.icon(
-                            onPressed: () => setState(
-                              () => _shown = _visibleCount + _pageSize,
-                            ),
-                            icon: const Icon(Icons.expand_more),
-                            label: Text(
-                              tr('加载更多（还有 {0} 张）', [
-                                _results.length - _visibleCount,
-                              ]),
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Center(
+                          child: Text(
+                            tr('加载中…还有 {0} 张', [_results.length - _visibleCount]),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
                             ),
                           ),
                         ),
@@ -611,6 +634,7 @@ class _SearchPageState extends State<SearchPage> {
     }
     setState(() {
       _saving = true;
+      _cancelSaving = false;
       _saveMsg = tr('准备中…');
     });
     final ok0 =
@@ -629,6 +653,12 @@ class _SearchPageState extends State<SearchPage> {
     final (ok, failed) = await CardSaver.instance.saveAll(
       codes,
       onProgress: (done, total) {
+        if (_cancelSaving) {
+          if (mounted) {
+            setState(() => _saveMsg = tr('取消中…'));
+          }
+          return;
+        }
         if (mounted) {
           setState(() => _saveMsg = tr('保存中 {0}/{1}', [done, total]));
         }
@@ -641,15 +671,22 @@ class _SearchPageState extends State<SearchPage> {
       _selecting = false;
       _selected.clear();
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          failed.isEmpty
-              ? tr('已保存 {0} 张卡图到相册', [ok])
-              : '保存 $ok 张，失败 ${failed.length} 张（${failed.take(3).join('、')}…）',
+    
+    if (_cancelSaving) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr('已取消保存（已保存 {0} 张）', [ok]))),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            failed.isEmpty
+                ? tr('已保存 {0} 张卡图到相册', [ok])
+                : '保存 $ok 张，失败 ${failed.length} 张（${failed.take(3).join('、')}…）',
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   Future<void> _pickColumns(BuildContext context, AppState state) async {

@@ -138,7 +138,7 @@ class _DeckCard extends StatelessWidget {
                 IconButton(
                   tooltip: tr('删除'),
                   icon: const Icon(Icons.delete_outline),
-                  onPressed: () => state.deleteDeck(deck.id),
+                  onPressed: () => _confirmDelete(context, state, deck),
                 ),
               ],
             ),
@@ -224,6 +224,41 @@ class _DeckCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete(
+    BuildContext context,
+    AppState state,
+    Deck deck,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('删除构筑')),
+        content: Text(tr('确定删除「{0}」吗？\n\n构筑里的 {1} 张卡会被移除，但你的收藏记录不受影响。', [deck.name, deck.total])),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: Text(tr('取消')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(c).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(c, true),
+            child: Text(tr('删除')),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      state.deleteDeck(deck.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr('已删除「{0}」', [deck.name]))),
+        );
+      }
+    }
   }
 
   Future<void> _pickMain(

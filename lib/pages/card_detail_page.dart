@@ -15,11 +15,64 @@ import '../widgets/owned_info_dialog.dart';
 import '../widgets/quick_add.dart';
 import 'card_edit_page.dart';
 import '../widgets/glass.dart';
-import '../widgets/card_route.dart';
+import '../widgets/scatter.dart';
 import '../widgets/tags.dart';
 import '../widgets/bg_scaffold.dart';
 import '../widgets/glass_menu.dart';
 import '../l10n/l10n.dart';
+
+/// PageView 版本：支持左右滑动切换卡片
+class CardDetailPageView extends StatefulWidget {
+  const CardDetailPageView({
+    super.key,
+    required this.codes,
+    required this.initialIndex,
+    this.scope = 'list',
+  });
+
+  final List<String> codes;
+  final int initialIndex;
+  final String scope;
+
+  @override
+  State<CardDetailPageView> createState() => _CardDetailPageViewState();
+}
+
+class _CardDetailPageViewState extends State<CardDetailPageView> {
+  late PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PageView.builder(
+      controller: _pageController,
+      itemCount: widget.codes.length,
+      onPageChanged: (index) {
+        // 更新 Scatter 的活动卡片，保证 Hero 动画正确
+        Scatter.activeCode = widget.codes[index];
+      },
+      itemBuilder: (context, index) {
+        return CardDetailPage(
+          code: widget.codes[index],
+          showPageIndicator: widget.codes.length > 1,
+          currentPage: index + 1,
+          totalPages: widget.codes.length,
+        );
+      },
+    );
+  }
+}
 
 /// 「我的记录」里显示的一行摘要
 String _ownedSummary(AppState state, String code) {
@@ -56,27 +109,19 @@ void _copy(BuildContext context, String text, String toast) {
   );
 }
 
-class CardDetailPage extends StatefulWidget {
-  const CardDetailPage({super.key, required this.code, this.heroScope});
+class CardDetailPage extends StatelessWidget {
+  const CardDetailPage({
+    super.key,
+    required this.code,
+    this.showPageIndicator = false,
+    this.currentPage,
+    this.totalPages,
+  });
 
   final String code;
-
-  /// 缩略图那边用同一个 scope，Hero 才能接上（null = 不做 Hero）
-  final String? heroScope;
-
-  @override
-  State<CardDetailPage> createState() => _CardDetailPageState();
-}
-
-class _CardDetailPageState extends State<CardDetailPage> {
-  String get code => widget.code;
-  String? get heroScope => widget.heroScope;
-
-  @override
-  void initState() {
-    super.initState();
-    // 散开 / 收回 统一由 openCardDetail() 控制（入口唯一，时序才可控）
-  }
+  final bool showPageIndicator;
+  final int? currentPage;
+  final int? totalPages;
 
   @override
   Widget build(BuildContext context) {
@@ -99,12 +144,7 @@ class _CardDetailPageState extends State<CardDetailPage> {
         padding: const EdgeInsets.all(12),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
-          child: heroScope == null
-              ? CardArt(card: card)
-              : Hero(
-                  tag: cardHeroTag(code, heroScope!),
-                  child: CardArt(card: card),
-                ),
+          child: CardArt(card: card),
         ),
       ),
     );
@@ -306,9 +346,23 @@ class _CardDetailPageState extends State<CardDetailPage> {
     return BgScaffold(
       // 背景交给最底层那一张图，页面自身透明 → 切页面不用重画背景
       backgroundColor: Colors.transparent,
-      appBar: GlassAppBar(
-        title: Text(card.code),
+      appBar: AppBar(
+        title: Text(card.displayName),
         actions: [
+          // 页码指示器（多卡片时显示）
+          if (showPageIndicator && currentPage != null && totalPages != null)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  '$currentPage/$totalPages',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
           IconButton(
             tooltip: tr('编辑卡信息'),
             icon: const Icon(Icons.edit_outlined),

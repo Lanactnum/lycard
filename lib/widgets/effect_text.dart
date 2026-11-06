@@ -1,9 +1,9 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
-import '../data/card_repository.dart';
 import '../data/keyword_db.dart';
-import '../pages/card_detail_page.dart';
+import '../data/card_repository.dart';
+import 'card_route.dart';
 import 'glass.dart';
 import '../l10n/l10n.dart';
 
@@ -173,14 +173,7 @@ class _Mark {
 
 /// 进卡详情（效果文本里点卡名走这里）
 void _openCard(BuildContext context, String code) {
-  // 效果文本是长按/点击可滚动的文字，这里顺手把焦点放掉；
-  // 否则从这一层卡详情再返回上一层时，键盘会莫名其妙弹出来。
-  FocusManager.instance.primaryFocus?.unfocus();
-  Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => CardDetailPage(heroScope: 'effect', code: code),
-    ),
-  );
+  openCardDetail(context, code, scope: 'effect');
 }
 
 /// 同名不同编号：不猜，弹个选择框让用户挑

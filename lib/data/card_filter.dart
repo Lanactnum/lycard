@@ -5,6 +5,8 @@ import 'keyword_db.dart';
 ///
 /// 所有条件之间是 **AND**（同时满足），同一组里勾了多个是 **OR**。
 class CardFilter {
+  CardFilter();
+
   /// 属性（多色卡只要包含勾选的颜色就算命中）
   final Set<String> colors = {};
 
@@ -52,6 +54,73 @@ class CardFilter {
     dpMin = dpMax = null;
     spMin = spMax = null;
     dmgMin = dmgMax = null;
+  }
+
+  /// 复制当前筛选条件
+  CardFilter copy() {
+    return CardFilter()
+      ..colors.addAll(colors)
+      ..kinds.addAll(kinds)
+      ..types.addAll(types)
+      ..rarities.addAll(rarities)
+      ..keywords.addAll(keywords)
+      ..costMin = costMin
+      ..costMax = costMax
+      ..exMin = exMin
+      ..exMax = exMax
+      ..apMin = apMin
+      ..apMax = apMax
+      ..dpMin = dpMin
+      ..dpMax = dpMax
+      ..spMin = spMin
+      ..spMax = spMax
+      ..dmgMin = dmgMin
+      ..dmgMax = dmgMax;
+  }
+
+  /// 从 JSON 恢复
+  factory CardFilter.fromJson(Map<String, dynamic> j) {
+    return CardFilter()
+      ..colors.addAll((j['colors'] as List<dynamic>? ?? []).cast<String>())
+      ..kinds.addAll((j['kinds'] as List<dynamic>? ?? []).cast<String>())
+      ..types.addAll((j['types'] as List<dynamic>? ?? []).cast<String>())
+      ..rarities.addAll((j['rarities'] as List<dynamic>? ?? []).cast<String>())
+      ..keywords.addAll((j['keywords'] as List<dynamic>? ?? []).cast<String>())
+      ..costMin = j['costMin'] as int?
+      ..costMax = j['costMax'] as int?
+      ..exMin = j['exMin'] as int?
+      ..exMax = j['exMax'] as int?
+      ..apMin = j['apMin'] as int?
+      ..apMax = j['apMax'] as int?
+      ..dpMin = j['dpMin'] as int?
+      ..dpMax = j['dpMax'] as int?
+      ..spMin = j['spMin'] as int?
+      ..spMax = j['spMax'] as int?
+      ..dmgMin = j['dmgMin'] as int?
+      ..dmgMax = j['dmgMax'] as int?;
+  }
+
+  /// 转换为 JSON
+  Map<String, dynamic> toJson() {
+    return {
+      if (colors.isNotEmpty) 'colors': colors.toList(),
+      if (kinds.isNotEmpty) 'kinds': kinds.toList(),
+      if (types.isNotEmpty) 'types': types.toList(),
+      if (rarities.isNotEmpty) 'rarities': rarities.toList(),
+      if (keywords.isNotEmpty) 'keywords': keywords.toList(),
+      if (costMin != null) 'costMin': costMin,
+      if (costMax != null) 'costMax': costMax,
+      if (exMin != null) 'exMin': exMin,
+      if (exMax != null) 'exMax': exMax,
+      if (apMin != null) 'apMin': apMin,
+      if (apMax != null) 'apMax': apMax,
+      if (dpMin != null) 'dpMin': dpMin,
+      if (dpMax != null) 'dpMax': dpMax,
+      if (spMin != null) 'spMin': spMin,
+      if (spMax != null) 'spMax': spMax,
+      if (dmgMin != null) 'dmgMin': dmgMin,
+      if (dmgMax != null) 'dmgMax': dmgMax,
+    };
   }
 
   static bool _inRange(int? v, int? lo, int? hi) {

@@ -89,12 +89,17 @@ def parse_page(html: str):
         if m:
             card["img"] = f"https://lycee-tcg.com/card/image/{m.group(1)}.png"
 
-        # 卡种 / 稀有度：名字行之后的两个 td
+        # 卡种 / 稀有度：卡号所在行里，卡号后面第 2、3 格
+        # ⚠️ 不能假设「卡号 = 第 0 格」：2026-11 的页面里卡号前面还有一个图片格
+        #    （<td rowspan="5"><img>…</td>），按 cs[0] 判会全部落空，
+        #    表现是新卡的 kind / rarity 全为空。
         for r in rows[:3]:
             cs = cells_of(r)
-            if len(cs) >= 2 and cs[0] == card.get("code"):
-                card["kind"] = cs[2] if len(cs) > 2 else ""
-                card["rarity"] = cs[3] if len(cs) > 3 else ""
+            code = card.get("code")
+            if code and code in cs:
+                i = cs.index(code)
+                card["kind"] = cs[i + 2] if len(cs) > i + 2 else ""
+                card["rarity"] = cs[i + 3] if len(cs) > i + 3 else ""
                 break
 
         # 表头行 + 数值行

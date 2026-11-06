@@ -31,6 +31,9 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 from fetch_list import parse_page  # noqa: E402  复用官方列表页解析器
 
+# 检测时存下的页面（work/list_fresh/<page>.html）—— 优先用它，少打官网
+FRESH = os.path.join(ROOT, "work", "list_fresh")
+
 NEW = os.path.join(ROOT, "work", "new_cards.json")
 FULL = os.path.join(ROOT, "assets", "data", "cards_full.json")
 LIST = "https://lycee-tcg.com/card/?page={page}"
@@ -74,6 +77,8 @@ def main():
     ap.add_argument("--delay", type=float, default=1.0)
     ap.add_argument("--proxy", default="none")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--only-incomplete", action="store_true",
+                    help="只处理「已入库但缺 kind」的卡（补字段时用，别每次全量重扫）")
     args = ap.parse_args()
 
     if not os.path.exists(NEW):
@@ -81,6 +86,10 @@ def main():
         return 2
     payload = json.load(open(NEW, encoding="utf-8"))
     want = set(payload["codes"])
+    if args.only_incomplete:
+        _cards = {c["code"]: c for c in json.load(open(FULL, encoding="utf-8"))}
+        want = {c for c in want if not (_cards.get(c) or {}).get("kind")}
+        print(f"只补缺 kind 的卡：{len(want)} 张")
     if not want:
         print("new_cards.json 里没有新卡")
         return 0
@@ -90,8 +99,24 @@ def main():
 
     op = build_opener(args.proxy)
     found = {}
+    reused = 0
     for page in range(1, pages + 1):
-        html, err = get(op, LIST.format(page=page))
+        cached = os.path.join(FRESH, f"{page}.html")
+        if os.path.exists(cached) and os.path.getsize(cached) > 2000:
+            html = open(cached, encoding="utf-8", errors="ignore").read()
+            err = None
+            reused += 1
+        else:
+            html, err = get(op, LIST.format(page=page))
+            # 抓成功就落盘 —— 官网会间歇性握手超时，重试时能复用已抓到的页，
+            # 否则每次都从头打一遍，永远到不了后面失败的页（实测卡在 25~39 页）。
+            if html is not None:
+                try:
+                    os.makedirs(FRESH, exist_ok=True)
+                    with open(cached, "w", encoding="utf-8") as fh:
+                        fh.write(html)
+                except Exception:  # noqa: BLE001
+                    pass
         if html is None:
             print(f"  第 {page} 页失败：{err}", flush=True)
             time.sleep(args.delay * 2)
@@ -126,6 +151,8 @@ def main():
             added += 1
 
     sample = found[sorted(found, key=num_key)[0]]
+    if reused:
+        print(f"  （其中 {reused} 页复用检测时的缓存，没再打官网）")
     print(f"\n解析样本：{sample.get('code')} | {sample.get('name')} | "
           f"{sample.get('color')} AP{sample.get('ap')} DP{sample.get('dp')} | "
           f"效果 {len(sample.get('effect_jp') or '')} 字")

@@ -70,8 +70,15 @@ def parse_page(page_html: str, out: dict):
 
 def main():
     apply = "--apply" in sys.argv
-    files = sorted(glob.glob(os.path.join(LIST_DIR, "*.html")))
-    print(f"解析 {len(files)} 个列表页…")
+    # --dir <目录>：换一个列表页缓存目录（比如检测/入库时存的 work/list_fresh）
+    src_dir = LIST_DIR
+    if "--dir" in sys.argv:
+        i = sys.argv.index("--dir")
+        if i + 1 < len(sys.argv):
+            d = sys.argv[i + 1]
+            src_dir = d if os.path.isabs(d) else os.path.join(ROOT, d)
+    files = sorted(glob.glob(os.path.join(src_dir, "*.html")))
+    print(f"从 {src_dir} 解析 {len(files)} 个列表页…")
     data: dict = {}
     for f in files:
         parse_page(open(f, encoding="utf-8", errors="ignore").read(), data)

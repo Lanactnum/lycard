@@ -40,6 +40,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CARDS = os.path.join(ROOT, "assets", "data", "cards_app.json")
 OUT = os.path.join(ROOT, "work", "new_cards.json")
 STATE = os.path.join(ROOT, "work", "new_cards_state.json")
+# 检测时顺手把抓到的列表页存下来 —— 入库工具可以直接复用，
+# 不用再向官网要同一批页面（官网一次只允许 ~17 个请求，省一次就是一整轮）
+FRESH = os.path.join(ROOT, "work", "list_fresh")
 
 LIST = "https://lycee-tcg.com/card/?page={page}"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -176,7 +179,7 @@ def main():
             print(f"  第 {page} 页抓取失败：{err}", flush=True)
             # 单页失败不直接判"没新卡"；连续失败太多才放弃
             if failed >= 3:
-                until = time.time() + 6 * 3600
+                until = time.time() + 30 * 60
                 save_state(blocked_until=time.strftime("%Y-%m-%dT%H:%M:%S",
                                                        time.localtime(until)),
                            blocked_until_ts=until)
@@ -187,6 +190,13 @@ def main():
             time.sleep(args.delay * 2)
             continue
         failed = 0
+
+        try:
+            os.makedirs(FRESH, exist_ok=True)
+            with open(os.path.join(FRESH, f"{page}.html"), "w", encoding="utf-8") as fh:
+                fh.write(html)
+        except Exception:  # noqa: BLE001
+            pass
 
         codes = parse_codes(html)
         if not codes:
@@ -216,7 +226,7 @@ def main():
     # ⚠️ 一页都没读到 = 检测失败，**绝不能**报「没有新卡」。
     # 假阴性的代价是：用户以为是最新，实际漏了一整个卡包。
     if pages_done == 0:
-        until = time.time() + 6 * 3600
+        until = time.time() + 30 * 60
         save_state(blocked_until=time.strftime("%Y-%m-%dT%H:%M:%S",
                                                time.localtime(until)),
                    blocked_until_ts=until)
@@ -232,6 +242,11 @@ def main():
                last_success_ts=time.time(), last_count=len(new_codes),
                blocked_until=None, blocked_until_ts=0,
                pages_scanned=pages_done)
+
+    # 去重：官网同一张卡可能出现在列表的多个位置（实测 358 条里有 90 个重复），
+    # 不去重会把「新卡数」虚报一大截。保持出现顺序（最新的在前）。
+    _seen = set()
+    new_codes = [c for c in new_codes if not (c in _seen or _seen.add(c))]
 
     print()
     print("=" * 60)
